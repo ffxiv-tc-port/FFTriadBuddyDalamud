@@ -1,4 +1,4 @@
-﻿using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 using FFTriadBuddy;
@@ -18,7 +18,7 @@ namespace TriadBuddyPlugin
         private List<Tuple<TriadCard, GameCardInfo>> listCards = new();
 
         private int selectedCardIdx;
-        private ImGuiTextFilter searchFilter;
+        private ImGuiTextFilterPtr searchFilter;
 
         private int prevNumFiltered;
         private int prevNumCards;
@@ -27,8 +27,8 @@ namespace TriadBuddyPlugin
         {
             this.uiReaderDeckEdit = uiReaderDeckEdit;
 
-            var searchFilter = new ImGuiTextFilter();
-            searchFilter.Build();
+            this.searchFilter = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilter.Build();
 
             uiReaderDeckEdit.OnVisibilityChanged += (_) => UpdateWindowData();
             UpdateWindowData();

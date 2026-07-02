@@ -1,5 +1,5 @@
-﻿using Dalamud;
-using Dalamud.Bindings.ImGui;
+using Dalamud;
+using ImGuiNET;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
@@ -27,8 +27,8 @@ namespace TriadBuddyPlugin
         private int selectedCardIdx;
         private int selectedNpcIdx;
         private int filterMode = -1;
-        private ImGuiTextFilter searchFilterCard;
-        private ImGuiTextFilter searchFilterNpc;
+        private ImGuiTextFilterPtr searchFilterCard;
+        private ImGuiTextFilterPtr searchFilterNpc;
 
         private bool showNpcMatchesOnly = false;
         private bool showNotOwnedOnly = false;
@@ -54,11 +54,10 @@ namespace TriadBuddyPlugin
             this.uiReaderCardList = uiReaderCardList;
             this.statsWindow = statsWindow;
 
-            var searchFilterCard = new ImGuiTextFilter();
-            searchFilterCard.Build();
-            
-            var searchFilterNpc = new ImGuiTextFilter();
-            searchFilterNpc.Build();
+            this.searchFilterCard = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilterCard.Build();
+            this.searchFilterNpc = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilterNpc.Build();
 
             uiReaderCardList.OnVisibilityChanged += (_) => UpdateWindowData();
             uiReaderCardList.OnUIStateChanged += OnUIStateChanged;

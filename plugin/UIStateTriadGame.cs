@@ -57,6 +57,7 @@ namespace TriadBuddyPlugin
         public UIStateTriadCard[] redDeck = new UIStateTriadCard[5];
         public UIStateTriadCard[] board = new UIStateTriadCard[9];
         public bool isPvP;
+        public bool localIsBlue = true;
         public byte move;
 
         public bool Equals(UIStateTriadGame? other)
@@ -173,22 +174,33 @@ namespace TriadBuddyPlugin
             screenOb.mods = ToTriadModifier(ctx);
             screenOb.turnState = (move == 0) ? ScannerTriad.ETurnState.Waiting : ScannerTriad.ETurnState.Active;
 
+            // when local player is red, swap blue/red roles so solver always treats local as blue
+            var localDeck = localIsBlue ? blueDeck : redDeck;
+            var opponentDeck = localIsBlue ? redDeck : blueDeck;
+            ETriadCardOwner localOwner = localIsBlue ? ETriadCardOwner.Blue : ETriadCardOwner.Red;
+            ETriadCardOwner opponentOwner = localIsBlue ? ETriadCardOwner.Red : ETriadCardOwner.Blue;
+
             for (int idx = 0; idx < board.Length; idx++)
             {
                 screenOb.board[idx] = board[idx].ToTriadCard(ctx);
-                screenOb.boardOwner[idx] =
+                ETriadCardOwner rawOwner =
                     (board[idx].owner == 1) ? ETriadCardOwner.Blue :
                     (board[idx].owner == 2) ? ETriadCardOwner.Red :
                      ETriadCardOwner.Unknown;
+                // remap to local=blue perspective
+                screenOb.boardOwner[idx] =
+                    (rawOwner == localOwner) ? ETriadCardOwner.Blue :
+                    (rawOwner == opponentOwner) ? ETriadCardOwner.Red :
+                    ETriadCardOwner.Unknown;
             }
 
             bool hasForcedMove = (move == 2);
-            for (int idx = 0; idx < blueDeck.Length; idx++)
+            for (int idx = 0; idx < localDeck.Length; idx++)
             {
-                screenOb.blueDeck[idx] = blueDeck[idx].ToTriadCard(ctx);
-                screenOb.redDeck[idx] = redDeck[idx].ToTriadCard(ctx);
+                screenOb.blueDeck[idx] = localDeck[idx].ToTriadCard(ctx);
+                screenOb.redDeck[idx] = opponentDeck[idx].ToTriadCard(ctx);
 
-                if (hasForcedMove && blueDeck[idx].isPresent && !blueDeck[idx].isLocked)
+                if (hasForcedMove && localDeck[idx].isPresent && !localDeck[idx].isLocked)
                 {
                     screenOb.forcedBlueCard = screenOb.blueDeck[idx];
                 }

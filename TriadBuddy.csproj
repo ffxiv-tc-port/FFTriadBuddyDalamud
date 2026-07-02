@@ -1,11 +1,46 @@
 ﻿<Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
     <Authors>MgAl2O4</Authors>
-    <Version>1.15.0.1</Version>
+    <Version>1.6.0.0</Version>
     <Description>Triple triad solver</Description>
     <Copyright>(c) 2025 MgAl2O4</Copyright>
     <PackageProjectUrl>https://github.com//MgAl2O4/FFTriadBuddyDalamud</PackageProjectUrl>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <DalamudApiLevel>12</DalamudApiLevel>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
+    <DalamudLibPath>$(appdata)\FFXIVSimpleLauncher\Dalamud\Injector</DalamudLibPath>
+    <AssemblySearchPaths>$(AssemblySearchPaths);$(DalamudLibPath)</AssemblySearchPaths>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <DalamudLibPath>$(MSBuildProjectDirectory)\lib</DalamudLibPath>
+    <AssemblySearchPaths>$(AssemblySearchPaths);$(DalamudLibPath)</AssemblySearchPaths>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
+    <Reference Remove="Dalamud" />
+    <Reference Include="Dalamud">
+      <HintPath>$(DalamudLibPath)\Dalamud.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="ImGui.NET">
+      <HintPath>$(DalamudLibPath)\ImGui.NET.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <Reference Remove="Dalamud" />
+    <Reference Include="Dalamud">
+      <HintPath>$(DalamudLibPath)\Dalamud.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="ImGui.NET">
+      <HintPath>$(DalamudLibPath)\ImGui.NET.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
 
   <ItemGroup>
     <None Remove="assets\loc\de.json" />
@@ -15,6 +50,7 @@
     <None Remove="assets\loc\ja.json" />
 	<None Remove="assets\loc\ko.json" />
 	<None Remove="assets\loc\zh.json" />
+	<None Remove="assets\loc\tw.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,6 +61,7 @@
     <EmbeddedResource Include="assets\loc\ja.json" />
 	<EmbeddedResource Include="assets\loc\ko.json" />
 	<EmbeddedResource Include="assets\loc\zh.json" />
+	<EmbeddedResource Include="assets\loc\tw.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,7 +70,7 @@
     </None>
   </ItemGroup>
 
-  <Target Name="CopyAssets" BeforeTargets="Build">
+<Target Name="CopyAssets" BeforeTargets="Build">
     <Copy SourceFiles="$(ProjectDir)\assets\icon.png" DestinationFolder="$(OutDir)\images" />
     <Copy SourceFiles="$(ProjectDir)\assets\image1.png" DestinationFolder="$(OutDir)\images" />
     <Copy SourceFiles="$(ProjectDir)\assets\image2.png" DestinationFolder="$(OutDir)\images" />

@@ -1,4 +1,4 @@
-﻿using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Dalamud.Interface.Utility;
 using FFTriadBuddy;
 using System.Numerics;
@@ -14,6 +14,7 @@ namespace TriadBuddyPlugin
 
         public readonly UIReaderTriadGame uiReaderGame;
         public readonly UIReaderTriadPrep uiReaderPrep;
+        public UIReaderTriadTournamentDeck? uiReaderTournamentDeck;
 
         // overlay: game board
         private bool hasGameOverlay;
@@ -24,6 +25,10 @@ namespace TriadBuddyPlugin
         // overlay: deck selection
         private bool hasDeckSelection;
 
+        // overlay: tournament deck suggestion
+        private bool hasTournamentDeck;
+        private bool tournamentSuggestionReady;
+
         public PluginOverlays(UIReaderTriadGame uiReaderGame, UIReaderTriadPrep uiReaderPrep)
         {
             this.uiReaderGame = uiReaderGame;
@@ -32,9 +37,16 @@ namespace TriadBuddyPlugin
             if (SolverUtils.solverGame != null)
             {
                 SolverUtils.solverGame.OnMoveChanged += OnSolverMove;
+                SolverUtils.solverGame.OnTournamentSuggestionReady += () => tournamentSuggestionReady = true;
             }
 
             uiReaderPrep.OnDeckSelectionChanged += (active) => hasDeckSelection = active;
+        }
+
+        public void SetTournamentDeckReader(UIReaderTriadTournamentDeck reader)
+        {
+            uiReaderTournamentDeck = reader;
+            reader.OnAddonVisibilityChanged += (visible) => { hasTournamentDeck = visible; if (!visible) tournamentSuggestionReady = false; };
         }
 
         public void OnSolverMove(bool foundMove)
@@ -64,11 +76,18 @@ namespace TriadBuddyPlugin
             {
                 DrawDeckSelectionOverlay();
             }
+
+            if (hasTournamentDeck)
+            {
+                DrawTournamentDeckOverlay();
+            }
         }
 
         private void DrawGameOverlay()
         {
-            if (uiReaderGame == null || uiReaderGame.status != UIReaderTriadGame.Status.NoErrors)
+            if (uiReaderGame == null ||
+                (uiReaderGame.status != UIReaderTriadGame.Status.NoErrors &&
+                 uiReaderGame.status != UIReaderTriadGame.Status.PvPMatch))
             {
                 hasGameOverlay = false;
                 return;
@@ -76,9 +95,11 @@ namespace TriadBuddyPlugin
 
             if (Service.pluginConfig.ShowSolverHintsInGame)
             {
-                var (deckCardPos, deckCardSize) = uiReaderGame.GetBlueCardPosAndSize(gameCardIdx);
+                bool localIsBlue = uiReaderGame.currentState?.localIsBlue ?? true;
+                var (deckCardPos, deckCardSize) = localIsBlue
+                    ? uiReaderGame.GetBlueCardPosAndSize(gameCardIdx)
+                    : uiReaderGame.GetRedCardPosAndSize(gameCardIdx);
                 var (boardCardPos, boardCardSize) = uiReaderGame.GetBoardCardPosAndSize(gameBoardIdx);
-
                 var drawCardPos = deckCardPos + ImGuiHelpers.MainViewport.Pos;
                 var drawBoardPos = boardCardPos + ImGuiHelpers.MainViewport.Pos;
 
@@ -120,6 +141,50 @@ namespace TriadBuddyPlugin
 
                     drawList.AddRectFilled(hintPos, hintPos + hintRectSize, 0x80000000, 5.0f, ImDrawFlags.RoundCornersAll);
                     drawList.AddText(hintPos + hintTextOffset, hintColor, hintText);
+                }
+            }
+        }
+
+        private void DrawTournamentDeckOverlay()
+        {
+            if (uiReaderTournamentDeck == null || SolverUtils.solverGame == null) return;
+
+            var opts = SolverUtils.solverGame.bestTournamentOptions;
+            var drawList = ImGui.GetForegroundDrawList(ImGuiHelpers.MainViewport);
+            var vpPos = ImGuiHelpers.MainViewport.Pos;
+
+            if (tournamentSuggestionReady && opts != null)
+            {
+                // Highlight the recommended slot for each group.
+                for (int g = 0; g < 3 && g < opts.Length; g++)
+                {
+                    var (pos, size) = uiReaderTournamentDeck.GetSlotPosAndSize(g, opts[g]);
+                    if (size == Vector2.Zero) continue;
+                    var drawPos = pos + vpPos;
+                    drawList.AddRect(drawPos, drawPos + size, colorWin, 5.0f, ImDrawFlags.RoundCornersAll, 4.0f * ImGuiHelpers.GlobalScale);
+                }
+
+                // Show win rate label near top-left of first group's recommended slot.
+                var (labelPos, _) = uiReaderTournamentDeck.GetSlotPosAndSize(0, opts[0]);
+                if (labelPos != Vector2.Zero)
+                {
+                    float winRate = SolverUtils.solverGame.bestTournamentWinRate;
+                    string label = $"推薦 {winRate:P0}";
+                    var textPos = labelPos + vpPos + new Vector2(0, -22 * ImGuiHelpers.GlobalScale);
+                    drawList.AddRectFilled(textPos, textPos + new Vector2(ImGui.CalcTextSize(label).X + 8, 20 * ImGuiHelpers.GlobalScale), 0xC0000000, 3.0f);
+                    drawList.AddText(textPos + new Vector2(4, 2), colorWin, label);
+                }
+            }
+            else
+            {
+                // Computing: show spinner text on first group slot.
+                var (pos, size) = uiReaderTournamentDeck.GetSlotPosAndSize(0, 0);
+                if (size != Vector2.Zero)
+                {
+                    string label = "計算中...";
+                    var textPos = pos + vpPos + new Vector2(0, -22 * ImGuiHelpers.GlobalScale);
+                    drawList.AddRectFilled(textPos, textPos + new Vector2(ImGui.CalcTextSize(label).X + 8, 20 * ImGuiHelpers.GlobalScale), 0xC0000000, 3.0f);
+                    drawList.AddText(textPos + new Vector2(4, 2), 0xFFFFFFFF, label);
                 }
             }
         }
