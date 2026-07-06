@@ -1,14 +1,25 @@
 ﻿<Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Authors>MgAl2O4</Authors>
-    <Version>1.6.0.0</Version>
+    <Authors>MgAl2O4, Lother</Authors>
+    <BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
+    <_PreviousBuildNumber Condition="Exists('$(BuildNumberFile)')">$([System.IO.File]::ReadAllText('$(BuildNumberFile)').Trim())</_PreviousBuildNumber>
+    <_PreviousBuildNumber Condition="'$(_PreviousBuildNumber)' == ''">0</_PreviousBuildNumber>
+    <BuildNumber>$([MSBuild]::Add($(_PreviousBuildNumber), 1))</BuildNumber>
+    <VersionPrefix>7.15.0</VersionPrefix>
+    <Version>$(VersionPrefix).$(BuildNumber)</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
     <Description>Triple triad solver</Description>
     <Copyright>(c) 2025 MgAl2O4</Copyright>
-    <PackageProjectUrl>https://github.com//MgAl2O4/FFTriadBuddyDalamud</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/Lother/FFTriadBuddyDalamud</PackageProjectUrl>
     <TargetFramework>net9.0-windows</TargetFramework>
     <LangVersion>13.0</LangVersion>
     <DalamudApiLevel>12</DalamudApiLevel>
   </PropertyGroup>
+
+  <Target Name="PersistBuildNumber" AfterTargets="Build">
+    <WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+  </Target>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
     <DalamudLibPath>$(appdata)\FFXIVSimpleLauncher\Dalamud\Injector</DalamudLibPath>
