@@ -71,7 +71,11 @@ namespace TriadBuddyPlugin
         public UIStateTriadGame? currentState;
         public Status status = Status.AddonNotFound;
         private bool lastKnownLocalIsBlue = true;
+        private bool manualSideOverrideActive = false;
         public bool forcedLocalIsRed = false;
+        // false when current rules (All Open / Chaos) make the unlocked-card heuristic meaningless;
+        // in that case the player must confirm/swap the side manually via ToggleLocalSide().
+        public bool sideDetectionReliable = true;
         public bool HasErrors => status >= Status.FailedToReadMove;
         public bool IsVisible => (status != Status.AddonNotFound) && (status != Status.AddonNotVisible);
 
@@ -89,6 +93,30 @@ namespace TriadBuddyPlugin
             SetStatus(Status.AddonNotFound);
             SetCurrentState(null);
             addonPtr = IntPtr.Zero;
+            manualSideOverrideActive = false;
+        }
+
+        // Lets the user manually flip which side is "local" when auto-detection gets it wrong.
+        // Stays pinned until SolverGame re-detects the side itself (new match / parse-fail heuristic).
+        public void ToggleLocalSide()
+        {
+            manualSideOverrideActive = true;
+            lastKnownLocalIsBlue = !lastKnownLocalIsBlue;
+        }
+
+        public void ResetManualSideOverride()
+        {
+            manualSideOverrideActive = false;
+        }
+
+        // Called when SolverGame detects a brand-new match starting: clears any manual override and
+        // resets the initial guess to blue (the common case), so unreliable-detection rules (All Open /
+        // Chaos) still start from a sane guess for the player to confirm/swap instead of carrying over
+        // a stale value from whatever match happened before.
+        public void ResetSideDetectionForNewMatch()
+        {
+            manualSideOverrideActive = false;
+            lastKnownLocalIsBlue = true;
         }
 
         public void OnAddonShown(IntPtr addonPtr)
@@ -146,7 +174,7 @@ namespace TriadBuddyPlugin
                 newState.board[8] = GetCardData(addon->Board8);
             }
 
-            if (status == Status.NoErrors && newState.move > 0)
+            if (status == Status.NoErrors && newState.move > 0 && !manualSideOverrideActive && sideDetectionReliable)
             {
                 bool hasUnlockedBlue = Array.Exists(newState.blueDeck, c => c.isPresent && !c.isLocked);
                 bool hasUnlockedRed = Array.Exists(newState.redDeck, c => c.isPresent && !c.isLocked);
@@ -154,7 +182,7 @@ namespace TriadBuddyPlugin
                 else if (hasUnlockedRed && !hasUnlockedBlue) lastKnownLocalIsBlue = false;
                 // if both or neither unlocked (e.g. chaos rules), keep last known value
             }
-            if (status == Status.NoErrors)
+            if (status == Status.NoErrors && !manualSideOverrideActive)
             {
                 if (forcedLocalIsRed)
                 {

@@ -48,6 +48,8 @@ namespace TriadBuddyPlugin
         private string? locBoardY2;
         private string? locBoardCenter;
         private string? locDebugMode;
+        private string? locSwapSides;
+        private string? locSwapSidesConfirm;
         private string? locConfigSolverHints;
         private string? locConfigDeckEditHighlights;
         private string? locConfigOptimizerCPU;
@@ -110,6 +112,8 @@ namespace TriadBuddyPlugin
             locBoardY2 = Localization.Localize("ST_BoardYBottom", "bottom");
             locBoardCenter = Localization.Localize("ST_BoardXYCenter", "center");
             locDebugMode = Localization.Localize("ST_DebugMode", "Show debug details");
+            locSwapSides = Localization.Localize("ST_SwapSides", "Swap red/blue side detection");
+            locSwapSidesConfirm = Localization.Localize("ST_SwapSidesConfirm", "Auto-detection is unreliable under this rule (All Open / Chaos) - please confirm/swap your side");
             locConfigSolverHints = Localization.Localize("CFG_GameToggleHints", "Show solver hints in game");
             locConfigDeckEditHighlights = Localization.Localize("CFG_DeckEditHighlights", "Show highlights in deck edit");
             locConfigOptimizerCPU = Localization.Localize("CFG_OptimizerParallelLoad", "CPU usage for Deck Optimizer");
@@ -313,8 +317,30 @@ namespace TriadBuddyPlugin
             var availRegionWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
 
             ImGui.TextColored(statusColor, statusDesc);
-            ImGui.SameLine(availRegionWidth - (50 * ImGuiHelpers.GlobalScale));
 
+            if (isPvPMatch)
+            {
+                ImGui.SameLine(availRegionWidth - (80 * ImGuiHelpers.GlobalScale));
+                bool needsConfirm = !uiReaderGame.sideDetectionReliable;
+                if (needsConfirm)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Button, colorYellow);
+                }
+                if (ImGuiComponents.IconButton(FontAwesomeIcon.ExchangeAlt))
+                {
+                    uiReaderGame.ToggleLocalSide();
+                }
+                if (needsConfirm)
+                {
+                    ImGui.PopStyleColor();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(needsConfirm ? locSwapSidesConfirm : locSwapSides);
+                }
+            }
+
+            ImGui.SameLine(availRegionWidth - (50 * ImGuiHelpers.GlobalScale));
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Bug))
             {
                 showDebugDetails = !showDebugDetails;

@@ -72,6 +72,11 @@ namespace TriadBuddyPlugin
                 return false;
             }
 
+            if (isPvP != other.isPvP || localIsBlue != other.localIsBlue)
+            {
+                return false;
+            }
+
             // not real list comparison, but will be enough here
             if (rules.Count != other.rules.Count || !rules.TrueForAll(x => other.rules.Contains(x)))
             {

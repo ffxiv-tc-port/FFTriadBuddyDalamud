@@ -51,6 +51,8 @@
 	"ST_BoardYCenter": { "message": "中" },
 	"ST_BoardYTop": { "message": "上" },
 	"ST_DebugMode": { "message": "顯示除錯詳情" },
+	"ST_SwapSides": { "message": "交換紅藍方判斷" },
+	"ST_SwapSidesConfirm": { "message": "此規則(全明牌/混亂)下自動判斷不可靠，請確認/切換你的紅藍方" },
 	"ST_GameData": { "message": "遊戲資料:" },
 	"ST_GameDataError": { "message": "找不到資料！求解器已停用" },
 	"ST_GameDataLog": { "message": "幻卡: {0}, NPC: {1}" },

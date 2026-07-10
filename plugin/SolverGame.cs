@@ -18,6 +18,7 @@ namespace TriadBuddyPlugin
         }
 
         private TriadGameScreenMemory screenMemory = new();
+        private bool wasPvP = false;
         private TriadNpc? pvpNpc;
         // [groupIdx][optionIdx] = list of cards in that option
         private List<List<TriadCard>>[]? tournamentGroups;
@@ -290,6 +291,12 @@ namespace TriadBuddyPlugin
         public event Action<bool>? OnMoveChanged;
         // Fired when we detect the local player is the Red player in PvP (true=red, false=unknown/blue)
         public event Action<bool>? OnLocalPlayerSideDetected;
+        // Fired whenever the current rules make the unlocked-card side-detection heuristic trustworthy
+        // (true) or not (false, e.g. All Open / Chaos where both/neither hand renders unlocked).
+        public event Action<bool>? OnSideDetectionReliabilityChanged;
+        // Fired exactly once when a PvP match transitions from not-active to active (see OnLocalPlayerSideDetected
+        // comment for why this can't just reuse that per-frame event).
+        public event Action? OnNewMatchStarted;
 
         public async void UpdateGame(UIStateTriadGame stateOb)
         {
@@ -329,12 +336,29 @@ namespace TriadBuddyPlugin
             bool hasTournamentDeck = tournamentGroups != null && tournamentGroups.Length > 0;
             pvpNeedsDeckConfig = isPvP && !userConfiguredDeck && !hasTournamentDeck;
             var solverNpc = isPvP ? GetPvPNpc() : currentNpc;
+            // A brand new PvP match starting (false -> true transition) fires a dedicated one-shot event
+            // so UIReaderTriadGame can clear any manual override / stale forced-red flag left over from
+            // a previous match. This must NOT reuse OnLocalPlayerSideDetected, since that event also fires
+            // every single frame from the two branches below - reusing it here would wipe the player's
+            // manual swap the instant isPvP/status flickers for one frame (scan noise), not just at
+            // genuine match boundaries.
+            if (isPvP && !wasPvP)
+                OnNewMatchStarted?.Invoke();
             // When solver detected NPC parse failed = PvP but GetUIStatePvP missed it, the local player must be Red
-            // (blue player's name would match an NPC, only the red = local player's name causes parse failure)
+            // (blue player's name would match an NPC, only the red = local player's name causes parse failure).
             if (status == Status.FailedToParseNpc && !stateOb!.isPvP)
                 OnLocalPlayerSideDetected?.Invoke(true);
             else if (!isPvP)
                 OnLocalPlayerSideDetected?.Invoke(false);
+            wasPvP = isPvP;
+
+            // Under "All Open" / "Chaos" rules both hands render unlocked at once (or neither does),
+            // so UIReaderTriadGame's unlocked-card heuristic has nothing to key off of and will just
+            // keep repeating whatever side it last guessed - which is often wrong for the whole match.
+            // Tell it to stop guessing and wait for the player to confirm/swap manually instead.
+            bool sideDetectionUnreliable = isPvP && screenOb != null &&
+                screenOb.mods.Exists(m => m is TriadGameModifierAllOpen || m is TriadGameModifierChaos);
+            OnSideDetectionReliabilityChanged?.Invoke(!sideDetectionUnreliable);
             if (solverNpc != null &&
                 screenOb != null && screenOb.turnState == ScannerTriad.ETurnState.Active &&
                 stateOb != null)

@@ -65,6 +65,26 @@ restoring eagerly in the constructor (data loader may not be ready yet).
   wire new readers through the same event rather than guessing red/blue.
 
 ## Common gotchas / FAQ
+- **`UIStateTriadGame.Equals` must include every field that changes solver
+  behavior.** `SetCurrentState` in `UIReaderTriadGame.cs` only fires
+  `OnUIStateChanged` when `Equals` says the state changed. Originally
+  `Equals` compared `move`/`rules`/`redPlayerDesc`/`board`/decks but NOT
+  `isPvP` or `localIsBlue` — so flipping red/blue side detection (e.g. a
+  manual "swap sides" toggle) silently did nothing whenever the board itself
+  hadn't changed since the last poll, because the "no change" state got
+  swallowed before it ever reached the solver. When adding any new field to
+  `UIStateTriadGame` that the solver needs to react to, add it to `Equals`
+  too, or `OnUIStateChanged` won't fire for it.
+- **Red/blue side detection is heuristic, not authoritative.** `lastKnownLocalIsBlue`
+  in `UIReaderTriadGame.cs` is inferred from which deck has unlocked cards,
+  overridden by `forcedLocalIsRed` (driven by `SolverGame.OnLocalPlayerSideDetected`,
+  which itself infers "must be red" only from an NPC-name-parse failure during
+  PvP). `forcedLocalIsRed` must only be reset at genuine match-start
+  transitions (`isPvP && !wasPvP`) — resetting it every frame wipes out a
+  correct detection mid-match. A manual override (`ToggleLocalSide` /
+  `manualSideOverrideActive`) exists as a user-facing escape hatch (swap-side
+  button in `PluginWindowStatus.cs`, PvP-only) since the heuristic can still
+  misjudge in edge cases like chaos rules (no cards ever "unlocked").
 - **No offline card/NPC data.** `TriadCardDB` / `TriadNpcDB` (`data/*.cs`) are
   populated at runtime from FFXIV's Lumina Excel sheets via
   `GameDataLoader.cs` — there is no bundled JSON snapshot of cards or NPCs.

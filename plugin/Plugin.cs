@@ -68,7 +68,11 @@ namespace TriadBuddyPlugin
             uiReaderGame = new UIReaderTriadGame();
             uiReaderGame.OnUIStateChanged += (state) => { if (state != null) { SolverUtils.solverGame?.UpdateGame(state); } };
             if (SolverUtils.solverGame != null)
+            {
                 SolverUtils.solverGame.OnLocalPlayerSideDetected += (isRed) => uiReaderGame.forcedLocalIsRed = isRed;
+                SolverUtils.solverGame.OnNewMatchStarted += () => uiReaderGame.ResetSideDetectionForNewMatch();
+                SolverUtils.solverGame.OnSideDetectionReliabilityChanged += (reliable) => uiReaderGame.sideDetectionReliable = reliable;
+            }
 
             uiReaderPrep = new UIReaderTriadPrep();
             uiReaderPrep.shouldScanDeckData = (SolverUtils.solverPreGameDecks?.profileGS == null) || SolverUtils.solverPreGameDecks.profileGS.HasErrors;
