@@ -30,12 +30,17 @@ jobs:
           "VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build with dotnet
         run: dotnet build --configuration Release -p:Version=${{ env.VER }} -p:AssemblyVersion=${{ env.VER }} -p:FileVersion=${{ env.VER }}
+      - name: Rename artifact to TriadBuddy.zip
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path . -Recurse -Filter latest.zip | Select-Object -First 1
+          Copy-Item $zip.FullName -Destination "TriadBuddy.zip"
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           files: |
-            bin/**/TriadBuddy/latest.zip
+            TriadBuddy.zip
             bin/**/TriadBuddy/TriadBuddy.json
           generate_release_notes: true
