@@ -70,5 +70,7 @@
 	"PVP_ClearDeck": { "message": "清除" },
 	"PVP_UnknownCard": { "message": "(未知)" },
 	"PVP_BestRedMove": { "message": "我方最佳對手位置:" },
-	"PVP_SetDeck": { "message": "請至設定頁面指定對手牌組以啟用提示" }
+	"PVP_SetDeck": { "message": "請至設定頁面指定對手牌組以啟用提示" },
+	"TD_Recommended": { "message": "推薦" },
+	"TD_Computing": { "message": "計算中..." }
 }

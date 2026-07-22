@@ -1,3 +1,4 @@
+using Dalamud;
 using ImGuiNET;
 using Dalamud.Interface.Utility;
 using FFTriadBuddy;
@@ -169,7 +170,7 @@ namespace TriadBuddyPlugin
                 if (labelPos != Vector2.Zero)
                 {
                     float winRate = SolverUtils.solverGame.bestTournamentWinRate;
-                    string label = $"推薦 {winRate:P0}";
+                    string label = $"{Localization.Localize("TD_Recommended", "Recommended")} {winRate:P0}";
                     var textPos = labelPos + vpPos + new Vector2(0, -22 * ImGuiHelpers.GlobalScale);
                     drawList.AddRectFilled(textPos, textPos + new Vector2(ImGui.CalcTextSize(label).X + 8, 20 * ImGuiHelpers.GlobalScale), 0xC0000000, 3.0f);
                     drawList.AddText(textPos + new Vector2(4, 2), colorWin, label);
@@ -181,7 +182,7 @@ namespace TriadBuddyPlugin
                 var (pos, size) = uiReaderTournamentDeck.GetSlotPosAndSize(0, 0);
                 if (size != Vector2.Zero)
                 {
-                    string label = "計算中...";
+                    string label = Localization.Localize("TD_Computing", "Computing...");
                     var textPos = pos + vpPos + new Vector2(0, -22 * ImGuiHelpers.GlobalScale);
                     drawList.AddRectFilled(textPos, textPos + new Vector2(ImGui.CalcTextSize(label).X + 8, 20 * ImGuiHelpers.GlobalScale), 0xC0000000, 3.0f);
                     drawList.AddText(textPos + new Vector2(4, 2), 0xFFFFFFFF, label);

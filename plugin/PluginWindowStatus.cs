@@ -428,7 +428,7 @@ namespace TriadBuddyPlugin
                 }
                 else if (isPvPMatch && SolverUtils.solverGame.pvpNeedsDeckConfig)
                 {
-                    ImGui.TextColored(colorYellow, locPvpSetDeck ?? "請設定對手牌組");
+                    ImGui.TextColored(colorYellow, locPvpSetDeck ?? "Set opponent deck for hints");
                 }
                 else if (SolverUtils.solverGame.hasMove)
                 {
