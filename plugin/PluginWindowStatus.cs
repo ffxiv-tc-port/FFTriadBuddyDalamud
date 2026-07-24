@@ -1,5 +1,5 @@
 using Dalamud;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Textures;
@@ -633,7 +633,7 @@ namespace TriadBuddyPlugin
                 var texture = GetCardTexture(cardOb.Id);
                 if (texture != null)
                 {
-                    drawList.AddImage(texture.ImGuiHandle,
+                    drawList.AddImage(texture.Handle,
                         pos + new Vector2(debugCellPading, debugCellPading),
                         pos + new Vector2(debugCellPading + debugCellSize, debugCellPading + debugCellSize));
                 }
