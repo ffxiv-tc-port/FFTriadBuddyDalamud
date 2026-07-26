@@ -11,7 +11,7 @@
     <FileVersion>$(Version)</FileVersion>
     <Description>Triple triad solver</Description>
     <Copyright>(c) 2025 MgAl2O4</Copyright>
-    <PackageProjectUrl>https://github.com/Lother/FFTriadBuddyDalamud</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/ffxiv-tc-port/FFTriadBuddyDalamud</PackageProjectUrl>
     <TargetFramework>net9.0-windows</TargetFramework>
     <LangVersion>13.0</LangVersion>
     <DalamudApiLevel>12</DalamudApiLevel>

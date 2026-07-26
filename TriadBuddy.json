@@ -6,7 +6,7 @@
   "InternalName": "TriadBuddy",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 12,
-  "RepoUrl": "https://github.com/Lother/FFTriadBuddyDalamud",
-  "IconUrl": "https://raw.githubusercontent.com/Lother/DalamudPluginsTC/main/icons/TriadBuddy.png",
+  "RepoUrl": "https://github.com/ffxiv-tc-port/FFTriadBuddyDalamud",
+  "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/TriadBuddy.png",
   "Tags": [ "solver", "triad", "triple triad" ]
 }
