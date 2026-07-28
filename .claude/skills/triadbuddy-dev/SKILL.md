@@ -5,9 +5,15 @@ description: Conventions and known patterns for working on the FFTriadBuddyDalam
 
 # TriadBuddy Dalamud Plugin
 
-Dalamud plugin (net9.0-windows, Dalamud API level 12) that wraps the standalone
-FFTriadBuddy solver (`triad-shared` git submodule) and reads FFXIV's Triple
-Triad UI via ImGui/memory scraping to drive solver suggestions.
+Dalamud plugin (net9.0-windows, `Dalamud.NET.Sdk/13.0.0`, **Dalamud API level 13**)
+that wraps the standalone FFTriadBuddy solver (`triad-shared` git submodule) and
+reads FFXIV's Triple Triad UI via ImGui/memory scraping to drive solver suggestions.
+
+現況：分支 **`tc-7.20`**，`TriadBuddy.json` 的 `DalamudApiLevel` 是 **13**，UI 已在
+commit `8da1868`「API13 port: ImGui.NET -> Dalamud.Bindings.ImGui」整個換成
+`Dalamud.Bindings.ImGui`。**舊筆記寫「API level 12」「ImGui.NET」的都是 `tc-7.15` 時代的資訊**；
+`tc-7.15` 現在是凍結的 API12 archive，不要往上面提交（GitHub 的 `origin/HEAD` 還指著它，
+clone 完先 `git checkout tc-7.20`）。
 
 ## Project layout
 - `plugin/` — plugin code (windows, UI readers, memory readers, config).
@@ -48,14 +54,27 @@ restoring eagerly in the constructor (data loader may not be ready yet).
 
 ## Localization
 - Add a new locale by dropping `assets/loc/<code>.json` (Crowdin key/message
-  format), adding `<None Remove="assets\loc\<code>.json" />` in
-  `TriadBuddy.csproj`, and appending `<code>` to `supportedLangCodes` in
-  `Plugin.cs`.
+  format), then editing `TriadBuddy.csproj` **in two ItemGroups**, and appending
+  `<code>` to `supportedLangCodes` in `Plugin.cs` (currently
+  `{ "de", "en", "es", "fr", "ja", "ko", "zh", "tw" }`, `plugin/Plugin.cs:35`):
+  - `<None Remove="assets\loc\<code>.json" />`
+  - `<EmbeddedResource Include="assets\loc\<code>.json" />` ← **這條最容易漏**。
+    只加 `None Remove` 不加 `EmbeddedResource Include`，檔案不會被打包進 dll，
+    執行期 `SetupWithLangCode` 會找不到資源而靜默 fallback，不會有編譯錯誤提示你。
 - `tw` (Traditional Chinese, Taiwan) was added alongside `zh` (Simplified) —
   keep both in sync manually; Crowdin does not auto-derive one from the
   other for this project.
 - Missing keys should still be added to `en.json` first — it's the
   fallback/reference set other locales are diffed against.
+- **語言是用 Dalamud 的 UI 語言字串決定的，不是 `ClientLanguage`**：
+  `plugin/Plugin.cs:53` 是 `locManager.SetupWithLangCode(pluginInterface.UiLanguage)`，
+  之後靠 `pluginInterface.LanguageChanged` 事件（`OnLanguageChanged(string langCode)`）更新，
+  代碼不在 `supportedLangCodes` 就 `SetupWithFallbacks()`。
+  所以 2026-07 那次「TC 的 `ClientLanguage` 從 `ChineseSimplified`(4) 變成
+  `TraditionalChinese`(7)、害一堆外掛靜默掉回英文/日文」的事件，**本 repo 不受影響、沒有東西要修**
+  ——這是艦隊掃描時已知的誤判來源之一，不要「順手修」。
+  （真的哪天要用 `ClientLanguage`：CI 釘的 Dalamud 13.0.0.6 **沒有** `TraditionalChinese`
+  這個列舉名，必須寫數值 `is 4 or 5 or 7`，寫列舉名本機過、CI 炸。）
 
 ## Solver integration notes
 - `SolverUtils.solverGame` is the single shared solver instance; UI readers
@@ -105,7 +124,41 @@ restoring eagerly in the constructor (data loader may not be ready yet).
   aggregating win rate across the group — not present as of 2026-07.
 
 ## Build
-Standard `dotnet build` against `TriadBuddy.sln`. Locally the Dalamud/ImGui.NET
-references resolve from `%appdata%\FFXIVSimpleLauncher\Dalamud\Injector`; CI
-(`GITHUB_ACTIONS=true`) instead resolves them from a `lib/` folder — see the
-conditional `PropertyGroup`s in `TriadBuddy.csproj` if references break.
+`TriadBuddy.csproj` 有兩組互斥的 `PropertyGroup`/`ItemGroup`，靠 `GITHUB_ACTIONS` 切換
+`DalamudLibPath`（兩邊都是 `<Reference Remove="Dalamud"/>` + 明確 HintPath，
+參照的是 `Dalamud.dll` 與 **`Dalamud.Bindings.ImGui.dll`**，不是 `ImGui.NET.dll`）。
+
+- **CI**（`GITHUB_ACTIONS=true`）：路徑是 repo 根目錄的 `lib\`。**repo 裡並沒有 `lib/` 資料夾**
+  ——workflow 會先下載釘住的 Dalamud
+  （`ffxiv-tc-port/DalamudPluginsTC` release `dalamud-pin-v13.0.0.6/dalamud-api13-net9.zip`）
+  解壓到 `$GITHUB_WORKSPACE\lib` 再建置。舊筆記只寫「CI 從 `lib/` 解析」會讓人以為那是簽入的資料夾。
+- 🔴 **本機**：csproj 寫死 `$(appdata)\FFXIVSimpleLauncher\Dalamud\Injector`，
+  **那裡是啟動器自帶的舊 Dalamud 12.0.2.0**（實測 FileVersion，沒有 `Dalamud.Bindings.ImGui.dll`）。
+  直接 `dotnet build` 會炸：
+
+  ```
+  error CS0234: 命名空間 'Dalamud' 中沒有類型或命名空間名稱 'Bindings'
+  ```
+
+  這個 csproj **不讀 `DALAMUD_HOME`**，設環境變數沒用；要用 MSBuild 全域屬性覆蓋：
+
+  ```powershell
+  dotnet build TriadBuddy.csproj -c Release -p:DalamudLibPath="<pin目錄>"
+  ```
+
+  （這裡的 HintPath 是 `$(DalamudLibPath)\Dalamud.dll`，自己有分隔符，路徑結尾**不要**再加反斜線。）
+
+  本機實測可用的 API13 Dalamud：`%APPDATA%\xivlauncher\addon\Hooks\dev`（13.0.0.6，與 CI 同版）、
+  `D:\ffxiv-tc-port\Dalamud\bin\Release`（13.0.0.16，遊戲執行期實際載入的那份）。
+  **不要**去覆寫 `%APPDATA%\FFXIVSimpleLauncher\Dalamud\Injector`。
+- ⚠️ CI 釘 13.0.0.6、執行期是 13.0.0.16，**「本機編得過」不等於「CI 編得過」**。
+
+## Versioning / release
+- `BuildNumber.txt`（受 git 追蹤）是建置自動遞增的計數檔，`PersistBuildNumber` target 每次 build +1
+  → **每次建置都會弄髒工作區**。它是建置副產物，`git checkout -- BuildNumber.txt` 還原即可，
+  小心 `git add -A`。工作區髒掉會讓 `release_plugin.py` 判定「有未提交變更」而**跳過這個外掛不發版**。
+- csproj 的 `<VersionPrefix>7.15.0</VersionPrefix>` **跟實際發版無關**：`release.yml`（只吃
+  `workflow_dispatch`）用 `-p:Version=<tag> -p:AssemblyVersion=… -p:FileVersion=…` 從 git tag 覆蓋，
+  再把 `latest.zip` 改名成 `TriadBuddy.zip` 發佈。所以 feed 上是 `v7.20.0.x` 而 csproj 還寫 `7.15.0`
+  **不是漏改**，不要去動它。
+- `release_plugin.py` 本來就是平行執行，而且**只推 tag**，不推分支、也不 commit `repo.json`。
