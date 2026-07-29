@@ -178,14 +178,19 @@ namespace TriadBuddyPlugin
             }
             else
             {
-                // Computing: show spinner text on first group slot.
+                // Still computing, or the background computation failed: either way there's no
+                // recommendation to highlight, so just show a status label on the first group slot.
                 var (pos, size) = uiReaderTournamentDeck.GetSlotPosAndSize(0, 0);
                 if (size != Vector2.Zero)
                 {
-                    string label = Localization.Localize("TD_Computing", "Computing...");
+                    bool failed = tournamentSuggestionReady && SolverUtils.solverGame.tournamentComputeFailed;
+                    string label = failed
+                        ? Localization.Localize("TD_Failed", "Failed to compute")
+                        : Localization.Localize("TD_Computing", "Computing...");
+                    uint labelColor = failed ? colorLose : 0xFFFFFFFF;
                     var textPos = pos + vpPos + new Vector2(0, -22 * ImGuiHelpers.GlobalScale);
                     drawList.AddRectFilled(textPos, textPos + new Vector2(ImGui.CalcTextSize(label).X + 8, 20 * ImGuiHelpers.GlobalScale), 0xC0000000, 3.0f);
-                    drawList.AddText(textPos + new Vector2(4, 2), 0xFFFFFFFF, label);
+                    drawList.AddText(textPos + new Vector2(4, 2), labelColor, label);
                 }
             }
         }
