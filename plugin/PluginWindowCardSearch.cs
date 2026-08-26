@@ -1,5 +1,5 @@
 using Dalamud;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
@@ -54,9 +54,9 @@ namespace TriadBuddyPlugin
             this.uiReaderCardList = uiReaderCardList;
             this.statsWindow = statsWindow;
 
-            this.searchFilterCard = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilterCard = ImGui.ImGuiTextFilter();
             this.searchFilterCard.Build();
-            this.searchFilterNpc = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilterNpc = ImGui.ImGuiTextFilter();
             this.searchFilterNpc.Build();
 
             uiReaderCardList.OnVisibilityChanged += (_) => UpdateWindowData();

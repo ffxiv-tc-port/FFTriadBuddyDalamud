@@ -1,4 +1,4 @@
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 using FFTriadBuddy;
@@ -27,7 +27,7 @@ namespace TriadBuddyPlugin
         {
             this.uiReaderDeckEdit = uiReaderDeckEdit;
 
-            this.searchFilter = ImGuiNative.ImGuiTextFilter_ImGuiTextFilter(null);
+            this.searchFilter = ImGui.ImGuiTextFilter();
             this.searchFilter.Build();
 
             uiReaderDeckEdit.OnVisibilityChanged += (_) => UpdateWindowData();
