@@ -1,9 +1,12 @@
 {
   "Author": "MgAl2O4",
   "Name": "TriadBuddy",
-  "Punchline": "Triple triad solver",
-  "Description": "Triple triad solver, NPC matches only.\n- highlights next move during mini game\n- evaluates all deck presets before match\n- deck optimizer for NPC\n- adds more details to card collection window",
+  "Punchline": "三張牌遊戲解牌助手",
+  "Description": "三張牌遊戲解牌工具，僅支援 NPC 對戰。\n- 小遊戲進行時提示下一步最佳出牌\n- 對戰前評估所有牌組預設\n- NPC 牌組優化器\n- 為卡牌收藏視窗新增更多細節",
   "InternalName": "TriadBuddy",
   "ApplicableVersion": "any",
+  "DalamudApiLevel": 12,
+  "RepoUrl": "https://github.com/ffxiv-tc-port/FFTriadBuddyDalamud",
+  "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/TriadBuddy.png",
   "Tags": [ "solver", "triad", "triple triad" ]
 }

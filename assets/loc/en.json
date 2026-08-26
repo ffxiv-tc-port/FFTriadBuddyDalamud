@@ -51,6 +51,8 @@
 	"ST_BoardYCenter": { "message": "center" },
 	"ST_BoardYTop": { "message": "top" },
 	"ST_DebugMode": { "message": "Show debug details" },
+	"ST_SwapSides": { "message": "Swap red/blue side detection" },
+	"ST_SwapSidesConfirm": { "message": "Auto-detection is unreliable under this rule (All Open / Chaos) - please confirm/swap your side" },
 	"ST_GameData": { "message": "Game data:" },
 	"ST_GameDataError": { "message": "missing! solver disabled" },
 	"ST_GameDataLog": { "message": "cards: {0}, npcs: {1}" },

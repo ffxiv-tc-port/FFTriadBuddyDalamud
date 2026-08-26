@@ -1,5 +1,5 @@
-﻿using Dalamud;
-using Dalamud.Bindings.ImGui;
+using Dalamud;
+using ImGuiNET;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Textures;
@@ -48,11 +48,22 @@ namespace TriadBuddyPlugin
         private string? locBoardY2;
         private string? locBoardCenter;
         private string? locDebugMode;
+        private string? locSwapSides;
+        private string? locSwapSidesConfirm;
         private string? locConfigSolverHints;
         private string? locConfigDeckEditHighlights;
         private string? locConfigOptimizerCPU;
         private string? locConfigOptimizerCPUHint;
+        private string? locPvpOpponentDeck;
+        private string? locPvpWorstDeck;
+        private string? locPvpClearDeck;
+        private string? locPvpUnknownCard;
+        private string? locPvpBestRedMove;
+        private string? locPvpSetDeck;
         private bool hasCachedLocStrings;
+
+        private string[] pvpCardSearchBuf = new string[5] { "", "", "", "", "" };
+        private bool[] pvpCardSearchFocused = new bool[5];
 
         public PluginWindowStatus(UIReaderTriadGame uiReaderGame, UIReaderTriadPrep uiReaderPrep) : base("Triad Buddy")
         {
@@ -101,10 +112,18 @@ namespace TriadBuddyPlugin
             locBoardY2 = Localization.Localize("ST_BoardYBottom", "bottom");
             locBoardCenter = Localization.Localize("ST_BoardXYCenter", "center");
             locDebugMode = Localization.Localize("ST_DebugMode", "Show debug details");
+            locSwapSides = Localization.Localize("ST_SwapSides", "Swap red/blue side detection");
+            locSwapSidesConfirm = Localization.Localize("ST_SwapSidesConfirm", "Auto-detection is unreliable under this rule (All Open / Chaos) - please confirm/swap your side");
             locConfigSolverHints = Localization.Localize("CFG_GameToggleHints", "Show solver hints in game");
             locConfigDeckEditHighlights = Localization.Localize("CFG_DeckEditHighlights", "Show highlights in deck edit");
             locConfigOptimizerCPU = Localization.Localize("CFG_OptimizerParallelLoad", "CPU usage for Deck Optimizer");
             locConfigOptimizerCPUHint = Localization.Localize("CFG_OptimizerParallelLoadHint", "Controls number of logical processors used for calculations. Does not reduce load of individual CPUs!");
+            locPvpOpponentDeck = Localization.Localize("PVP_OpponentDeck", "PvP opponent deck:");
+            locPvpWorstDeck = Localization.Localize("PVP_WorstDeck", "Worst deck");
+            locPvpClearDeck = Localization.Localize("PVP_ClearDeck", "Clear");
+            locPvpUnknownCard = Localization.Localize("PVP_UnknownCard", "(unknown)");
+            locPvpBestRedMove = Localization.Localize("PVP_BestRedMove", "Best opp.pos:");
+            locPvpSetDeck = Localization.Localize("PVP_SetDeck", "Set opponent deck for hints");
         }
 
         public override void OnOpen()
@@ -170,6 +189,105 @@ namespace TriadBuddyPlugin
                 Service.pluginConfig.DeckOptimizerCPU = deckOptimizerCPUCopy * 0.01f;
                 Service.pluginConfig.Save();
             }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Text(locPvpOpponentDeck ?? "PvP opponent deck:");
+
+            DrawPvpDeckConfig();
+        }
+
+        private void DrawPvpDeckConfig()
+        {
+            var cardIds = Service.pluginConfig.PvpOpponentCardIds;
+            bool deckChanged = false;
+
+            for (int i = 0; i < 5; i++)
+            {
+                var card = TriadCardDB.Get().FindById(cardIds[i]);
+                string cardName = card != null ? card.Name.GetLocalized() : (locPvpUnknownCard ?? "(unknown)");
+
+                ImGui.Text($"[{i + 1}]");
+                ImGui.SameLine();
+                ImGui.TextColored(card != null ? colorOk : colorInactive, cardName);
+                ImGui.SameLine();
+
+                ImGui.PushID($"pvp_slot_{i}");
+                if (ImGui.SmallButton("..."))
+                {
+                    pvpCardSearchBuf[i] = "";
+                    pvpCardSearchFocused[i] = true;
+                    ImGui.OpenPopup($"pvp_card_pick_{i}");
+                }
+
+                if (ImGui.BeginPopup($"pvp_card_pick_{i}"))
+                {
+                    if (pvpCardSearchFocused[i])
+                    {
+                        ImGui.SetKeyboardFocusHere();
+                        pvpCardSearchFocused[i] = false;
+                    }
+                    ImGui.InputText("##search", ref pvpCardSearchBuf[i], 64);
+
+                    var allCards = TriadCardDB.Get().cards;
+                    int shown = 0;
+                    foreach (var c in allCards)
+                    {
+                        if (c == null || !c.IsValid()) continue;
+                        var name = c.Name.GetLocalized();
+                        if (pvpCardSearchBuf[i].Length > 0 && !name.Contains(pvpCardSearchBuf[i], StringComparison.OrdinalIgnoreCase)) continue;
+                        if (shown >= 10) { ImGui.TextColored(colorInactive, "..."); break; }
+
+                        if (ImGui.Selectable($"{name} ({c.Sides[(int)ETriadGameSide.Up]}/{c.Sides[(int)ETriadGameSide.Right]}/{c.Sides[(int)ETriadGameSide.Down]}/{c.Sides[(int)ETriadGameSide.Left]})"))
+                        {
+                            cardIds[i] = c.Id;
+                            deckChanged = true;
+                            ImGui.CloseCurrentPopup();
+                        }
+                        shown++;
+                    }
+                    ImGui.EndPopup();
+                }
+                ImGui.PopID();
+            }
+
+            ImGui.Spacing();
+            if (ImGui.SmallButton(locPvpWorstDeck ?? "Worst deck"))
+            {
+                SetWorstDeck(cardIds);
+                deckChanged = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.SmallButton(locPvpClearDeck ?? "Clear"))
+            {
+                for (int i = 0; i < 5; i++) cardIds[i] = -1;
+                deckChanged = true;
+            }
+
+            if (deckChanged)
+            {
+                Service.pluginConfig.Save();
+                SolverUtils.solverGame?.RebuildPvPNpc();
+            }
+        }
+
+        private void SetWorstDeck(int[] cardIds)
+        {
+            var cards = TriadCardDB.Get().cards;
+            var sorted = new System.Collections.Generic.List<TriadCard>();
+            foreach (var c in cards)
+            {
+                if (c != null && c.IsValid())
+                    sorted.Add(c);
+            }
+            sorted.Sort((a, b) =>
+            {
+                int sumA = a.Sides[(int)ETriadGameSide.Up] + a.Sides[(int)ETriadGameSide.Right] + a.Sides[(int)ETriadGameSide.Down] + a.Sides[(int)ETriadGameSide.Left];
+                int sumB = b.Sides[(int)ETriadGameSide.Up] + b.Sides[(int)ETriadGameSide.Right] + b.Sides[(int)ETriadGameSide.Down] + b.Sides[(int)ETriadGameSide.Left];
+                return sumA.CompareTo(sumB);
+            });
+            for (int i = 0; i < 5 && i < sorted.Count; i++)
+                cardIds[i] = sorted[i].Id;
         }
 
         private void DrawStatus()
@@ -199,8 +317,30 @@ namespace TriadBuddyPlugin
             var availRegionWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
 
             ImGui.TextColored(statusColor, statusDesc);
-            ImGui.SameLine(availRegionWidth - (50 * ImGuiHelpers.GlobalScale));
 
+            if (isPvPMatch)
+            {
+                ImGui.SameLine(availRegionWidth - (80 * ImGuiHelpers.GlobalScale));
+                bool needsConfirm = !uiReaderGame.sideDetectionReliable;
+                if (needsConfirm)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Button, colorYellow);
+                }
+                if (ImGuiComponents.IconButton(FontAwesomeIcon.ExchangeAlt))
+                {
+                    uiReaderGame.ToggleLocalSide();
+                }
+                if (needsConfirm)
+                {
+                    ImGui.PopStyleColor();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(needsConfirm ? locSwapSidesConfirm : locSwapSides);
+                }
+            }
+
+            ImGui.SameLine(availRegionWidth - (50 * ImGuiHelpers.GlobalScale));
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Bug))
             {
                 showDebugDetails = !showDebugDetails;
@@ -268,14 +408,27 @@ namespace TriadBuddyPlugin
             {
                 ImGui.Text(locGameNpc);
                 ImGui.SameLine();
-                ImGui.TextColored(colorYellow, (SolverUtils.solverGame.currentNpc != null) ? SolverUtils.solverGame.currentNpc.Name.GetLocalized() : "--");
+                if (isPvPMatch)
+                {
+                    var cardIds = Service.pluginConfig?.PvpOpponentCardIds;
+                    bool hasOpponentDeck = cardIds != null && System.Array.Exists(cardIds, id => id >= 0);
+                    ImGui.TextColored(colorYellow, hasOpponentDeck ? locStatusPvPMatch ?? "PvP" : (locStatusPvPMatch ?? "PvP") + " (" + (locPvpUnknownCard ?? "unknown") + ")");
+                }
+                else
+                {
+                    ImGui.TextColored(colorYellow, (SolverUtils.solverGame.currentNpc != null) ? SolverUtils.solverGame.currentNpc.Name.GetLocalized() : "--");
+                }
 
                 ImGui.Text(locGameMove);
                 ImGui.SameLine();
 
-                if (isPvPMatch || isGameDataMissing || !Service.pluginConfig.ShowSolverHintsInGame)
+                if (isGameDataMissing || !Service.pluginConfig.ShowSolverHintsInGame)
                 {
                     ImGui.TextColored(colorYellow, locGameMoveDisabled);
+                }
+                else if (isPvPMatch && SolverUtils.solverGame.pvpNeedsDeckConfig)
+                {
+                    ImGui.TextColored(colorYellow, locPvpSetDeck ?? "Set opponent deck for hints");
                 }
                 else if (SolverUtils.solverGame.hasMove)
                 {
@@ -297,6 +450,27 @@ namespace TriadBuddyPlugin
                 else
                 {
                     ImGui.TextColored(colorYellow, "--");
+                }
+
+                // PvP: show opponent's move that benefits blue the most
+                if (isPvPMatch && SolverUtils.solverGame.hasRedAdvMove)
+                {
+                    ImGui.Text(locPvpBestRedMove ?? "Best opp.pos:");
+                    ImGui.SameLine();
+
+                    var useColor =
+                        (SolverUtils.solverGame.redAdvMoveWinChance.expectedResult == ETriadGameState.BlueWins) ? colorOk :
+                        (SolverUtils.solverGame.redAdvMoveWinChance.expectedResult == ETriadGameState.BlueDraw) ? colorYellow :
+                        colorErr;
+
+                    string humanCard = (SolverUtils.solverGame.redAdvMoveCard != null) ? SolverUtils.solverGame.redAdvMoveCard.Name.GetLocalized() : "??";
+                    int boardX = SolverUtils.solverGame.redAdvMoveBoardIdx % 3;
+                    int boardY = SolverUtils.solverGame.redAdvMoveBoardIdx / 3;
+                    string? humanBoardX = boardX == 0 ? locBoardX0 : (boardX == 1) ? locBoardX1 : locBoardX2;
+                    string? humanBoardY = boardY == 0 ? locBoardY0 : (boardY == 1) ? locBoardY1 : locBoardY2;
+                    string? humanBoard = (SolverUtils.solverGame.redAdvMoveBoardIdx == 4) ? locBoardCenter : $"{humanBoardY}, {humanBoardX}";
+
+                    ImGui.TextColored(useColor, $"[{SolverUtils.solverGame.redAdvMoveCardIdx + 1}] {humanCard} => {humanBoard}");
                 }
             }
 
@@ -459,7 +633,7 @@ namespace TriadBuddyPlugin
                 var texture = GetCardTexture(cardOb.Id);
                 if (texture != null)
                 {
-                    drawList.AddImage(texture.Handle,
+                    drawList.AddImage(texture.ImGuiHandle,
                         pos + new Vector2(debugCellPading, debugCellPading),
                         pos + new Vector2(debugCellPading + debugCellSize, debugCellPading + debugCellSize));
                 }

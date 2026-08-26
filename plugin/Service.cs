@@ -31,5 +31,8 @@ namespace TriadBuddyPlugin
 
         [PluginService]
         public static IPluginLog logger { get; private set; } = null!;
+
+        [PluginService]
+        public static IClientState clientState { get; private set; } = null!;
     }
 }

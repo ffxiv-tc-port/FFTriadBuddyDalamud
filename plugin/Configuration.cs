@@ -19,6 +19,12 @@ namespace TriadBuddyPlugin
         public bool CheckNpcHideBeaten { get; set; } = false;
         public bool CheckNpcHideCompleted { get; set; } = false;
 
+        public int[] PvpOpponentCardIds { get; set; } = new int[] { -1, -1, -1, -1, -1 };
+
+        // Tournament deck candidates: [groupIdx][optionIdx][cardIdx]
+        public List<List<List<int>>> TournamentGroups { get; set; } = new();
+        public List<string> TournamentRuleNames { get; set; } = new();
+
         [Serializable]
         public class NpcStatInfo
         {
