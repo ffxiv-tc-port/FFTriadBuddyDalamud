@@ -147,8 +147,13 @@ namespace TriadBuddyPlugin
 
             cachedState.decks.Clear();
 
-            var nodeA = (baseNode->UldManager.NodeListCount == 5) ? baseNode->UldManager.NodeList[4] : null;
-            if (nodeA != null && (int)nodeA->Type > 1000)
+            // 🔴 NodeListCount 是遊戲寫入的欄位，NodeList 是與它成對的**指標**：
+            //    Count 對得上並不保證陣列已經配置好，上界之外還要判指標，否則是 AccessViolation
+            //    （corrupted-state exception，try/catch 攔不到）。元件節點的 Component 同理。
+            var nodeA = (baseNode->UldManager.NodeList != null && baseNode->UldManager.NodeListCount == 5) ? baseNode->UldManager.NodeList[4] : null;
+            if (nodeA != null && (int)nodeA->Type > 1000 &&
+                ((AtkComponentNode*)nodeA)->Component != null &&
+                ((AtkComponentNode*)nodeA)->Component->UldManager.NodeList != null)
             {
                 var compNodeA = (AtkComponentNode*)nodeA;
                 for (int idxA = 0; idxA < compNodeA->Component->UldManager.NodeListCount; idxA++)

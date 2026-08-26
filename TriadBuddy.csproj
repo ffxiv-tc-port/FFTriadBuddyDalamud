@@ -1,4 +1,4 @@
-﻿<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+﻿<Project Sdk="Dalamud.NET.Sdk/13.0.0">
   <PropertyGroup>
     <Authors>MgAl2O4</Authors>
     <BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
@@ -14,7 +14,7 @@
     <PackageProjectUrl>https://github.com/ffxiv-tc-port/FFTriadBuddyDalamud</PackageProjectUrl>
     <TargetFramework>net9.0-windows</TargetFramework>
     <LangVersion>13.0</LangVersion>
-    <DalamudApiLevel>12</DalamudApiLevel>
+    <DalamudApiLevel>13</DalamudApiLevel>
   </PropertyGroup>
 
   <Target Name="PersistBuildNumber" AfterTargets="Build">

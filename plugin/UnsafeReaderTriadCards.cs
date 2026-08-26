@@ -37,6 +37,13 @@ namespace TriadBuddyPlugin
                     IsCardOwnedPtr = Service.sigScanner.ScanText("40 53 48 83 ec 20 48 8b d9 66 85 d2 74 3b 0f");
 
                     // UIState addr, use LEA opcode before calling IsTriadCardOwned, same function as described above
+                    // 台服 7.20 離線鑑識(2026-08-20):這條特徵碼在台服執行檔有 4 個命中
+                    // (0x140FF4A43 / 0x140FF4A83 / 0x140FF5B54 / 0x140FF5E83),Dalamud 取位址最小的第一命中。
+                    // 四個命中的 lea 全部指向同一個靜態位址 0x142931C90,所以多重命中目前不影響結果;
+                    // 且該位址與 FFXIVClientStructs 的 UIState.Instance() 靜態位址逐字相同(獨立交叉驗證)。
+                    // 四個命中也都緊接著 call 0x140A4C510 —— 正是上面 IsCardOwnedPtr 解出的位址。
+                    // 這個值會被當成 uiState 傳進 IsCardOwned / IsNpcBeaten 兩支裸函式指標。
+                    // 若日後改版讓其中某個命中改指別的全域,第一命中會靜默改綁 —— 屆時要把這條收斂成唯一命中。
                     UIStatePtr = Service.sigScanner.GetStaticAddressFromSig("48 8d 0d ?? ?? ?? ?? e8 ?? ?? ?? ?? 84 c0 74 0f 8b cb");
                 }
                 catch (Exception ex)

@@ -28,6 +28,9 @@ namespace TriadBuddyPlugin
         // Best deck option per group (0-based), set after ComputeTournamentDeckSuggestion.
         public int[]? bestTournamentOptions;
         public float bestTournamentWinRate;
+        // Set when the background computation in ComputeTournamentDeckSuggestion threw an
+        // exception, so the UI can show a failure state instead of waiting forever.
+        public bool tournamentComputeFailed;
         public event Action? OnTournamentSuggestionReady;
 
         private TriadNpc GetPvPNpc()
@@ -153,77 +156,92 @@ namespace TriadBuddyPlugin
             // Capture group data for background thread.
             var groups = tournamentGroups;
             var ruleNames = tournamentRuleNames.ToList();
+            tournamentComputeFailed = false;
 
             Task.Run(() =>
             {
-                // Parse rules fresh here (tournamentMods may not be populated yet).
-                var parseCtx = new GameUIParser();
-                var mods = ruleNames
-                    .Select(n => parseCtx.ParseModifier(n, markFailed: false))
-                    .Where(m => m != null).Select(m => m!).ToList();
-
-                // Use a lightweight simulation without the complex agent.
-                var simulation = new TriadGameSimulation();
-                simulation.Initialize(mods);
-
-                // Build all 27 my-deck combos as (optionPerGroup[], cards[])
-                var myOptions = new List<(int[] opts, List<TriadCard> cards)>();
-                for (int a = 0; a < groups[0].Count; a++)
-                for (int b = 0; b < groups[1].Count; b++)
-                for (int c = 0; c < groups[2].Count; c++)
+                try
                 {
-                    var cards = new List<TriadCard>();
-                    cards.AddRange(groups[0][a]);
-                    cards.AddRange(groups[1][b]);
-                    cards.AddRange(groups[2][c]);
-                    myOptions.Add((new[] { a, b, c }, cards));
-                }
+                    // Parse rules fresh here (tournamentMods may not be populated yet).
+                    var parseCtx = new GameUIParser();
+                    var mods = ruleNames
+                        .Select(n => parseCtx.ParseModifier(n, markFailed: false))
+                        .Where(m => m != null).Select(m => m!).ToList();
 
-                // Build all 27 opponent combos
-                var oppCombos = GetValidCombinations(new List<TriadCard>());
+                    // Use a lightweight simulation without the complex agent.
+                    var simulation = new TriadGameSimulation();
+                    simulation.Initialize(mods);
 
-                const int gamesPerPair = 50;
-                var rng = new Random(42);
-
-                float bestScore = -1f;
-                int[] bestOpts = new[] { 0, 0, 0 };
-                float bestWin = 0f;
-
-                foreach (var (opts, myCards) in myOptions)
-                {
-                    float totalScore = 0f;
-                    var myDeck = new TriadDeck();
-                    myDeck.knownCards.AddRange(myCards);
-
-                    foreach (var oppCards in oppCombos)
+                    // Build all 27 my-deck combos as (optionPerGroup[], cards[])
+                    var myOptions = new List<(int[] opts, List<TriadCard> cards)>();
+                    for (int a = 0; a < groups[0].Count; a++)
+                    for (int b = 0; b < groups[1].Count; b++)
+                    for (int c = 0; c < groups[2].Count; c++)
                     {
-                        var oppDeck = new TriadDeck();
-                        oppDeck.knownCards.AddRange(oppCards);
+                        var cards = new List<TriadCard>();
+                        cards.AddRange(groups[0][a]);
+                        cards.AddRange(groups[1][b]);
+                        cards.AddRange(groups[2][c]);
+                        myOptions.Add((new[] { a, b, c }, cards));
+                    }
 
-                        int wins = 0, draws = 0;
-                        for (int g = 0; g < gamesPerPair; g++)
+                    // Build all 27 opponent combos
+                    var oppCombos = GetValidCombinations(new List<TriadCard>());
+
+                    const int gamesPerPair = 50;
+                    var rng = new Random(42);
+
+                    float bestScore = -1f;
+                    int[] bestOpts = new[] { 0, 0, 0 };
+                    float bestWin = 0f;
+
+                    foreach (var (opts, myCards) in myOptions)
+                    {
+                        float totalScore = 0f;
+                        var myDeck = new TriadDeck();
+                        myDeck.knownCards.AddRange(myCards);
+
+                        foreach (var oppCards in oppCombos)
                         {
-                            var state = simulation.StartGame(myDeck, oppDeck, ETriadGameState.InProgressBlue);
-                            RunRandomGame(simulation, state, rng);
-                            if (state.state == ETriadGameState.BlueWins) wins++;
-                            else if (state.state == ETriadGameState.BlueDraw) draws++;
+                            var oppDeck = new TriadDeck();
+                            oppDeck.knownCards.AddRange(oppCards);
+
+                            int wins = 0, draws = 0;
+                            for (int g = 0; g < gamesPerPair; g++)
+                            {
+                                var state = simulation.StartGame(myDeck, oppDeck, ETriadGameState.InProgressBlue);
+                                RunRandomGame(simulation, state, rng);
+                                if (state.state == ETriadGameState.BlueWins) wins++;
+                                else if (state.state == ETriadGameState.BlueDraw) draws++;
+                            }
+                            totalScore += (wins + 0.5f * draws) / gamesPerPair;
                         }
-                        totalScore += (wins + 0.5f * draws) / gamesPerPair;
+
+                        float avg = oppCombos.Count > 0 ? totalScore / oppCombos.Count : 0f;
+                        if (avg > bestScore)
+                        {
+                            bestScore = avg;
+                            bestOpts = opts;
+                            bestWin = avg;
+                        }
                     }
 
-                    float avg = oppCombos.Count > 0 ? totalScore / oppCombos.Count : 0f;
-                    if (avg > bestScore)
-                    {
-                        bestScore = avg;
-                        bestOpts = opts;
-                        bestWin = avg;
-                    }
+                    bestTournamentOptions = bestOpts;
+                    bestTournamentWinRate = bestWin;
+                    Service.logger.Info($"[TournamentDeck] Best deck: group0→opt{bestOpts[0]}, group1→opt{bestOpts[1]}, group2→opt{bestOpts[2]}, win={bestWin:P0}");
                 }
-
-                bestTournamentOptions = bestOpts;
-                bestTournamentWinRate = bestWin;
-                Service.logger.Info($"[TournamentDeck] Best deck: group0→opt{bestOpts[0]}, group1→opt{bestOpts[1]}, group2→opt{bestOpts[2]}, win={bestWin:P0}");
-                OnTournamentSuggestionReady?.Invoke();
+                catch (Exception ex)
+                {
+                    // Without this, an exception here would fault the Task silently: OnTournamentSuggestionReady
+                    // would never fire and the UI would be stuck showing "Computing..." forever.
+                    Service.logger.Error(ex, "[TournamentDeck] Failed to compute deck suggestion");
+                    bestTournamentOptions = null;
+                    tournamentComputeFailed = true;
+                }
+                finally
+                {
+                    OnTournamentSuggestionReady?.Invoke();
+                }
             });
         }
 

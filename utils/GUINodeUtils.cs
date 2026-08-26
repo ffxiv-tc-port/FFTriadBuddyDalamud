@@ -248,7 +248,10 @@ namespace MgAl2O4.Utils
                 else
                 {
                     var compNode = (AtkComponentNode*)node;
-                    for (int idx = 0; idx < compNode->Component->UldManager.NodeListCount; idx++)
+                    // 🔴 NodeListCount 非 0 不保證 NodeList 已配置（元件還在載入時就是 null），
+                    //    Component 本身也可能還沒建好——上界之外還要判這兩層指標。
+                    var compNodeList = compNode->Component != null ? compNode->Component->UldManager.NodeList : null;
+                    for (int idx = 0; compNodeList != null && idx < compNode->Component->UldManager.NodeListCount; idx++)
                     {
                         hasParsableChildNodes = RecursiveAppendParsableChildNodes(compNode->Component->UldManager.NodeList[idx], depth + 1, numChildNodes, list, debugPath + "," + numChildNodes);
                         numChildNodes++;
