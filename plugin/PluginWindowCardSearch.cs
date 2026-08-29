@@ -184,6 +184,7 @@ namespace TriadBuddyPlugin
 
         public override void PreDraw()
         {
+            base.PreDraw();
             Position = new Vector2(uiReaderCardList.cachedState.screenPos.X + uiReaderCardList.cachedState.screenSize.X + 10, uiReaderCardList.cachedState.screenPos.Y);
         }
 
