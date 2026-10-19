@@ -111,6 +111,23 @@ namespace MgAl2O4.Utils
             }
         }
 
+        // Update 快取的視窗位址到同一幀的 Draw 之前可能已被遊戲釋放；Draw 端解參前一律經過這裡，
+        // 回 0＝已不是同一個視窗，呼叫端不畫。只比位址、不比可見度（隱藏不影響記憶體安全）。
+        public static IntPtr GetIfStillCurrent(IGameGui? gameGui, string name, IntPtr cachedAddonPtr)
+        {
+            if (cachedAddonPtr == IntPtr.Zero || gameGui == null)
+            {
+                return IntPtr.Zero;
+            }
+
+            return KeepIfSame(cachedAddonPtr, gameGui.GetAddonByName(name, 1));
+        }
+
+        public static IntPtr KeepIfSame(IntPtr cachedAddonPtr, IntPtr liveAddonPtr)
+        {
+            return (cachedAddonPtr != IntPtr.Zero && cachedAddonPtr == liveAddonPtr) ? cachedAddonPtr : IntPtr.Zero;
+        }
+
         private unsafe IntPtr GetAddonPtrIfValid(string name)
         {
             IntPtr addonPtr = (gameGui == null) ? IntPtr.Zero : gameGui.GetAddonByName(name, 1);

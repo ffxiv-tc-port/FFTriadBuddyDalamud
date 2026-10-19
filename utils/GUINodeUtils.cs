@@ -156,11 +156,14 @@ namespace MgAl2O4.Utils
             return null;
         }
 
+        // 往上走 ParentNode 的上界：正常視窗深度遠低於此，只防節點鏈成環時卡死在迴圈裡。
+        public const int MaxParentDepth = 64;
+
         public static unsafe Vector2 GetNodePosition(AtkResNode* node)
         {
             var pos = new Vector2(node->X, node->Y);
             var par = node->ParentNode;
-            while (par != null)
+            for (int depth = 0; par != null && depth < MaxParentDepth; depth++)
             {
                 pos *= new Vector2(par->ScaleX, par->ScaleY);
                 pos += new Vector2(par->X, par->Y);
@@ -174,7 +177,7 @@ namespace MgAl2O4.Utils
         {
             if (node == null) return new Vector2(1, 1);
             var scale = new Vector2(node->ScaleX, node->ScaleY);
-            while (node->ParentNode != null)
+            for (int depth = 0; node->ParentNode != null && depth < MaxParentDepth; depth++)
             {
                 node = node->ParentNode;
                 scale *= new Vector2(node->ScaleX, node->ScaleY);
@@ -248,7 +251,10 @@ namespace MgAl2O4.Utils
                 else
                 {
                     var compNode = (AtkComponentNode*)node;
-                    for (int idx = 0; idx < compNode->Component->UldManager.NodeListCount; idx++)
+                    // 🔴 NodeListCount 非 0 不保證 NodeList 已配置（元件還在載入時就是 null），
+                    //    Component 本身也可能還沒建好——上界之外還要判這兩層指標。
+                    var compNodeList = compNode->Component != null ? compNode->Component->UldManager.NodeList : null;
+                    for (int idx = 0; compNodeList != null && idx < compNode->Component->UldManager.NodeListCount; idx++)
                     {
                         hasParsableChildNodes = RecursiveAppendParsableChildNodes(compNode->Component->UldManager.NodeList[idx], depth + 1, numChildNodes, list, debugPath + "," + numChildNodes);
                         numChildNodes++;

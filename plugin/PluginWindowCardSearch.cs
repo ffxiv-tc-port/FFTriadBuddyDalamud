@@ -1,4 +1,4 @@
-﻿using Dalamud;
+using Dalamud;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
@@ -27,8 +27,8 @@ namespace TriadBuddyPlugin
         private int selectedCardIdx;
         private int selectedNpcIdx;
         private int filterMode = -1;
-        private ImGuiTextFilter searchFilterCard;
-        private ImGuiTextFilter searchFilterNpc;
+        private ImGuiTextFilterPtr searchFilterCard;
+        private ImGuiTextFilterPtr searchFilterNpc;
 
         private bool showNpcMatchesOnly = false;
         private bool showNotOwnedOnly = false;
@@ -54,11 +54,10 @@ namespace TriadBuddyPlugin
             this.uiReaderCardList = uiReaderCardList;
             this.statsWindow = statsWindow;
 
-            var searchFilterCard = new ImGuiTextFilter();
-            searchFilterCard.Build();
-            
-            var searchFilterNpc = new ImGuiTextFilter();
-            searchFilterNpc.Build();
+            this.searchFilterCard = ImGui.ImGuiTextFilter();
+            this.searchFilterCard.Build();
+            this.searchFilterNpc = ImGui.ImGuiTextFilter();
+            this.searchFilterNpc.Build();
 
             uiReaderCardList.OnVisibilityChanged += (_) => UpdateWindowData();
             uiReaderCardList.OnUIStateChanged += OnUIStateChanged;
@@ -185,6 +184,7 @@ namespace TriadBuddyPlugin
 
         public override void PreDraw()
         {
+            base.PreDraw();
             Position = new Vector2(uiReaderCardList.cachedState.screenPos.X + uiReaderCardList.cachedState.screenSize.X + 10, uiReaderCardList.cachedState.screenPos.Y);
         }
 
@@ -379,37 +379,40 @@ namespace TriadBuddyPlugin
                 {
                     var settingsDB = PlayerSettingsDB.Get();
 
-                    ImGui.BeginListBox("##cardReward", new Vector2(WindowContentWidth * ImGuiHelpers.GlobalScale, ImGui.GetTextLineHeightWithSpacing() * 4.5f));
-                    for (int idx = 0; idx < listNpcReward.Count; idx++)
+                    // 清單框整個捲出可見範圍時 BeginListBox 回 false，這時不可以 EndListBox。
+                    if (ImGui.BeginListBox("##cardReward", new Vector2(WindowContentWidth * ImGuiHelpers.GlobalScale, ImGui.GetTextLineHeightWithSpacing() * 4.5f)))
                     {
-                        var (cardOb, cardListIdx) = listNpcReward[idx];
-                        bool isCardOwned = settingsDB.ownedCards.Contains(cardOb);
-
-                        var itemDesc = $"{CardUtils.GetOrderDesc(cardOb)} {CardUtils.GetUIDesc(cardOb)}";
-                        bool isSelected = selectedCardIdx == cardListIdx;
-
-                        if (isCardOwned)
+                        for (int idx = 0; idx < listNpcReward.Count; idx++)
                         {
-                            ImGui.PushStyleColor(ImGuiCol.Text, 0xffa8a8a8);
-                        }
+                            var (cardOb, cardListIdx) = listNpcReward[idx];
+                            bool isCardOwned = settingsDB.ownedCards.Contains(cardOb);
 
-                        if (ImGui.Selectable($"{CardUtils.GetRarityDesc(cardOb)}  {itemDesc}", isSelected))
-                        {
-                            selectedCardIdx = cardListIdx;
-                            OnCardSelectionChanged();
-                        }
+                            var itemDesc = $"{CardUtils.GetOrderDesc(cardOb)} {CardUtils.GetUIDesc(cardOb)}";
+                            bool isSelected = selectedCardIdx == cardListIdx;
 
-                        if (isCardOwned)
-                        {
-                            ImGui.PopStyleColor(1);
-                        }
+                            if (isCardOwned)
+                            {
+                                ImGui.PushStyleColor(ImGuiCol.Text, 0xffa8a8a8);
+                            }
 
-                        if (isSelected)
-                        {
-                            ImGui.SetItemDefaultFocus();
+                            if (ImGui.Selectable($"{CardUtils.GetRarityDesc(cardOb)}  {itemDesc}", isSelected))
+                            {
+                                selectedCardIdx = cardListIdx;
+                                OnCardSelectionChanged();
+                            }
+
+                            if (isCardOwned)
+                            {
+                                ImGui.PopStyleColor(1);
+                            }
+
+                            if (isSelected)
+                            {
+                                ImGui.SetItemDefaultFocus();
+                            }
                         }
+                        ImGui.EndListBox();
                     }
-                    ImGui.EndListBox();
                 }
                 else
                 {

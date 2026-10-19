@@ -1,4 +1,4 @@
-﻿using Dalamud;
+using Dalamud;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
@@ -97,6 +97,7 @@ namespace TriadBuddyPlugin
 
         public override void PreDraw()
         {
+            base.PreDraw();
             var btnSize = ImGuiHelpers.GetButtonSize("-");
             var reqHeight = btnSize.Y + (ImGui.GetStyle().WindowPadding.Y * 2);
             if (optimizerWindow.CanRunOptimizer())

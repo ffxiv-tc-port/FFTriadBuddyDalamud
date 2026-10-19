@@ -6,6 +6,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using MgAl2O4.Utils;
 using System;
+using System.Linq;
 
 namespace TriadBuddyPlugin
 {
@@ -22,14 +23,16 @@ namespace TriadBuddyPlugin
         private readonly UIReaderTriadPrep uiReaderPrep;
         private readonly UIReaderTriadCardList uiReaderCardList;
         private readonly UIReaderTriadDeckEdit uiReaderDeckEdit;
+        private readonly UIReaderTriadTournamentDeck uiReaderTournamentDeck;
         private readonly StatTracker statTracker;
         private readonly GameDataLoader dataLoader;
         private readonly UIReaderScheduler uiReaderScheduler;
         private readonly PluginOverlays overlays;
         private readonly Localization locManager;
+        private bool tournamentGroupsRestored = false;
 
         public static Localization? CurrentLocManager;
-        private string[] supportedLangCodes = { "de", "en", "es", "fr", "ja", "ko", "zh" };
+        private string[] supportedLangCodes = { "de", "en", "es", "fr", "ja", "ko", "zh", "tw" };
 
         [PluginService] internal static IDalamudPluginInterface pluginInterface { get; private set; } = null!;
 
@@ -64,6 +67,12 @@ namespace TriadBuddyPlugin
             // prep data scrapers
             uiReaderGame = new UIReaderTriadGame();
             uiReaderGame.OnUIStateChanged += (state) => { if (state != null) { SolverUtils.solverGame?.UpdateGame(state); } };
+            if (SolverUtils.solverGame != null)
+            {
+                SolverUtils.solverGame.OnLocalPlayerSideDetected += (isRed) => uiReaderGame.forcedLocalIsRed = isRed;
+                SolverUtils.solverGame.OnNewMatchStarted += () => uiReaderGame.ResetSideDetectionForNewMatch();
+                SolverUtils.solverGame.OnSideDetectionReliabilityChanged += (reliable) => uiReaderGame.sideDetectionReliable = reliable;
+            }
 
             uiReaderPrep = new UIReaderTriadPrep();
             uiReaderPrep.shouldScanDeckData = (SolverUtils.solverPreGameDecks?.profileGS == null) || SolverUtils.solverPreGameDecks.profileGS.HasErrors;
@@ -71,6 +80,23 @@ namespace TriadBuddyPlugin
 
             uiReaderCardList = new UIReaderTriadCardList();
             uiReaderDeckEdit = new UIReaderTriadDeckEdit();
+
+            uiReaderTournamentDeck = new UIReaderTriadTournamentDeck();
+            uiReaderTournamentDeck.OnCandidatesChanged += () =>
+            {
+                var cardIds = uiReaderTournamentDeck.GetAllCandidateCardIds();
+                Service.logger.Info($"[TournamentDeck] Candidates: [{string.Join(", ", cardIds)}]");
+                SolverUtils.solverGame?.SetTournamentGroups(uiReaderTournamentDeck.groups, uiReaderTournamentDeck.ruleNames);
+                SolverUtils.solverGame?.ComputeTournamentDeckSuggestion();
+
+                if (Service.pluginConfig != null)
+                {
+                    Service.pluginConfig.TournamentGroups = uiReaderTournamentDeck.groups
+                        .Select(g => g.Select(opt => opt.ToList()).ToList()).ToList();
+                    Service.pluginConfig.TournamentRuleNames = uiReaderTournamentDeck.ruleNames.ToList();
+                    Service.pluginConfig.Save();
+                }
+            };
 
             var uiReaderMatchResults = new UIReaderTriadResults();
             uiReaderMatchResults.OnUpdated += (state) => { if (SolverUtils.solverGame != null) { statTracker.OnMatchFinished(SolverUtils.solverGame, state); } };
@@ -81,6 +107,7 @@ namespace TriadBuddyPlugin
             uiReaderScheduler.AddObservedAddon(uiReaderPrep.uiReaderDeckSelect);
             uiReaderScheduler.AddObservedAddon(uiReaderCardList);
             uiReaderScheduler.AddObservedAddon(uiReaderDeckEdit);
+            uiReaderScheduler.AddObservedAddon(uiReaderTournamentDeck);
             uiReaderScheduler.AddObservedAddon(uiReaderMatchResults);
 
             var memReaderTriadFunc = new UnsafeReaderTriadCards();
@@ -91,6 +118,7 @@ namespace TriadBuddyPlugin
 
             // prep UI
             overlays = new PluginOverlays(uiReaderGame, uiReaderPrep);
+            overlays.SetTournamentDeckReader(uiReaderTournamentDeck);
             statusWindow = new PluginWindowStatus(uiReaderGame, uiReaderPrep);
             windowSystem.AddWindow(statusWindow);
 
@@ -158,12 +186,26 @@ namespace TriadBuddyPlugin
             statusWindow.IsOpen = true;
         }
 
+
         private void Framework_Update(IFramework framework)
         {
             try
             {
                 if (dataLoader.IsDataReady)
                 {
+                    if (!tournamentGroupsRestored)
+                    {
+                        tournamentGroupsRestored = true;
+                        var cfg = Service.pluginConfig;
+                        if (cfg != null && cfg.TournamentGroups.Count == 3)
+                        {
+                            var groups = cfg.TournamentGroups.Select(g => g.Select(opt => opt.ToList()).ToList()).ToArray();
+                            SolverUtils.solverGame?.SetTournamentGroups(groups, cfg.TournamentRuleNames);
+                            SolverUtils.solverGame?.ComputeTournamentDeckSuggestion();
+                            Service.logger.Info($"[TournamentDeck] Restored from config: rules=[{string.Join(", ", cfg.TournamentRuleNames)}]");
+                        }
+                    }
+
                     float deltaSeconds = (float)framework.UpdateDelta.TotalSeconds;
                     uiReaderScheduler.Update(deltaSeconds);
                 }

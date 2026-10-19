@@ -1,4 +1,4 @@
-﻿using Dalamud;
+using Dalamud;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
@@ -10,6 +10,7 @@ using FFTriadBuddy;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading.Tasks;
 using TriadBuddy;
 
 namespace TriadBuddyPlugin
@@ -508,7 +509,23 @@ namespace TriadBuddyPlugin
             }
         }
 
+        // async void：漏出去的例外沒有人接，會直接結束整個遊戲，所以整段在這裡接住。
+        // 失敗時把「執行中」收掉，按鈕回到可以重新開始的狀態。
         private async void StartOptimizer()
+        {
+            try
+            {
+                await StartOptimizerInner();
+            }
+            catch (Exception ex)
+            {
+                Service.logger.Error(ex, "Deck optimizer failed");
+                isOptimizerRunning = false;
+                optimizerTimeRemainingDesc = "--";
+            }
+        }
+
+        private async Task StartOptimizerInner()
         {
             if (!CanRunOptimizer())
             {

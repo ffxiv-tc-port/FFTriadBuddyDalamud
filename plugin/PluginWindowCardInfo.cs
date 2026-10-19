@@ -1,4 +1,4 @@
-﻿using Dalamud;
+using Dalamud;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
@@ -108,6 +108,7 @@ namespace TriadBuddyPlugin
 
         public override void PreDraw()
         {
+            base.PreDraw();
             var requestedSize = uiReaderCardList.cachedState.descriptionSize / ImGuiHelpers.GlobalScale;
             if (ImGuiHelpers.GlobalScale > 1.0f)
             {

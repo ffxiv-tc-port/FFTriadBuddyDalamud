@@ -30,14 +30,24 @@ namespace TriadBuddyPlugin
 
             Action<object?> solverAction = (ctxOb) =>
             {
-                var ctx = ctxOb as SolverUtils.DeckSolverContext;
-                if (ctx != null && ctx.solver != null && ctx.gameState != null)
+                // 射後不理的工作：例外沒有人接，暫停一定要在 finally 放開，否則卡組最佳化永遠停住。
+                try
                 {
-                    ctx.solver.FindNextMove(ctx.gameState, out _, out _, out var solverResult);
-                    callback?.Invoke(solverResult);
+                    var ctx = ctxOb as SolverUtils.DeckSolverContext;
+                    if (ctx != null && ctx.solver != null && ctx.gameState != null)
+                    {
+                        ctx.solver.FindNextMove(ctx.gameState, out _, out _, out var solverResult);
+                        callback?.Invoke(solverResult);
+                    }
                 }
-
-                SetPauseForOptimizedDeck(false);
+                catch (Exception ex)
+                {
+                    Service.logger.Error(ex, "[SolverDeckOptimize] optimized deck evaluation failed");
+                }
+                finally
+                {
+                    SetPauseForOptimizedDeck(false);
+                }
             };
 
             new TaskFactory().StartNew(solverAction, calcContext);

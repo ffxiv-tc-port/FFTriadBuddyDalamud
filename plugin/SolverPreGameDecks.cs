@@ -25,6 +25,7 @@ namespace TriadBuddyPlugin
         public int preGameBestId = -1;
         private int preGameId = 0;
         private int preGameSolved = 0;
+        private int preGameFailed = 0;
         private bool preGameAllProfileDecksEmpty;
         private object preGameLock = new();
 
@@ -102,6 +103,7 @@ namespace TriadBuddyPlugin
                 preGameId++;
                 preGameBestId = -1;
                 preGameSolved = 0;
+                preGameFailed = 0;
 
                 // initialize screenMemory.playerDeck, see comment in OnSolvedDeck() for details
                 preGameAllProfileDecksEmpty = (profileDecks != null) && (anyDeckOb == null);
@@ -130,8 +132,16 @@ namespace TriadBuddyPlugin
                         var ctx = ctxOb as SolverUtils.DeckSolverContext;
                         if (ctx != null && ctx.solver != null && ctx.gameState != null)
                         {
-                            ctx.solver.FindNextMove(ctx.gameState, out _, out _, out var solverResult);
-                            OnSolvedDeck(ctx.passId, ctx.deckId, solverResult);
+                            try
+                            {
+                                ctx.solver.FindNextMove(ctx.gameState, out _, out _, out var solverResult);
+                                OnSolvedDeck(ctx.passId, ctx.deckId, solverResult);
+                            }
+                            catch (Exception ex)
+                            {
+                                Service.logger.Error(ex, $"[SolverPreGameDecks] deck evaluation failed, deck id {ctx.deckId}");
+                                OnFailedDeck(ctx.passId);
+                            }
                         }
                     };
 
@@ -286,8 +296,23 @@ namespace TriadBuddyPlugin
 
                     preGameBestId = bestId;
 
-                    SolverUtils.solverDeckOptimize?.SetPauseForPreGameDecks(preGameSolved < preGameDecks.Count);
+                    SolverUtils.solverDeckOptimize?.SetPauseForPreGameDecks(preGameSolved + preGameFailed < preGameDecks.Count);
                 }
+            }
+        }
+
+        // 在工作執行緒上呼叫。失敗的卡組刻意不計入進度（畫面照舊停在未完成），只用來放開卡組最佳化的暫停。
+        private void OnFailedDeck(int passId)
+        {
+            if (preGameId != passId)
+            {
+                return;
+            }
+
+            lock (preGameLock)
+            {
+                preGameFailed++;
+                SolverUtils.solverDeckOptimize?.SetPauseForPreGameDecks(preGameSolved + preGameFailed < preGameDecks.Count);
             }
         }
     }
