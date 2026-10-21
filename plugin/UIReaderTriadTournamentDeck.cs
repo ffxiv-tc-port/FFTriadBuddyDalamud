@@ -36,6 +36,9 @@ namespace TriadBuddyPlugin
         public void OnAddonShown(IntPtr addonPtr) { cachedAddonPtr = addonPtr; OnAddonVisibilityChanged?.Invoke(true); ReadCandidates(addonPtr); }
         public void OnAddonUpdate(IntPtr addonPtr) { cachedAddonPtr = addonPtr; }
 
+        // slot node IDs per group: group0→11,12,13  group1→25,26,27  group2→39,40,41
+        private static readonly uint[][] slotIds = { new uint[] { 11, 12, 13 }, new uint[] { 25, 26, 27 }, new uint[] { 39, 40, 41 } };
+
         // Returns screen position and size of the slot node for the given group and option.
         public unsafe (Vector2 pos, Vector2 size) GetSlotPosAndSize(int groupIdx, int optionIdx)
         {
@@ -43,8 +46,6 @@ namespace TriadBuddyPlugin
             if (drawAddonPtr == IntPtr.Zero) return (Vector2.Zero, Vector2.Zero);
             var baseNode = (AtkUnitBase*)drawAddonPtr;
 
-            // slot node IDs per group: group0→11,12,13  group1→25,26,27  group2→39,40,41
-            uint[][] slotIds = { new uint[] { 11, 12, 13 }, new uint[] { 25, 26, 27 }, new uint[] { 39, 40, 41 } };
             if (groupIdx < 0 || groupIdx >= 3 || optionIdx < 0 || optionIdx >= slotIds[groupIdx].Length)
                 return (Vector2.Zero, Vector2.Zero);
 
