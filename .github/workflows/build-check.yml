@@ -50,3 +50,4 @@ jobs:
           Expand-Archive -Force dalamud-pinned.zip "$env:GITHUB_WORKSPACE\lib"
       - name: Build with dotnet
         run: dotnet build --configuration Release
+# workflow re-registration trigger 2026-10-26T17:52:41Z
