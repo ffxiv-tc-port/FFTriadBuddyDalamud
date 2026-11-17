@@ -1,4 +1,4 @@
 [submodule "triad-shared"]
 	path = triad-shared
 	url = https://github.com/ffxiv-tc-port/FFTriadBuddy.git
-	branch = gamelogic-shared
+	branch = tc-7.30
