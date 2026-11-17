@@ -9,11 +9,11 @@ Dalamud plugin (net9.0-windows, `Dalamud.NET.Sdk/13.0.0`, **Dalamud API level 13
 that wraps the standalone FFTriadBuddy solver (`triad-shared` git submodule) and
 reads FFXIV's Triple Triad UI via ImGui/memory scraping to drive solver suggestions.
 
-現況：分支 **`tc-7.20`**，`TriadBuddy.json` 的 `DalamudApiLevel` 是 **13**，UI 已在
+現況：分支 **`tc-7.30`**，`TriadBuddy.json` 的 `DalamudApiLevel` 是 **13**，UI 已在
 commit `8da1868`「API13 port: ImGui.NET -> Dalamud.Bindings.ImGui」整個換成
 `Dalamud.Bindings.ImGui`。**舊筆記寫「API level 12」「ImGui.NET」的都是 `tc-7.15` 時代的資訊**；
 `tc-7.15` 現在是凍結的 API12 archive，不要往上面提交（GitHub 的 `origin/HEAD` 還指著它，
-clone 完先 `git checkout tc-7.20`）。
+clone 完先 `git checkout tc-7.30`）。
 
 ## Project layout
 - `plugin/` — plugin code (windows, UI readers, memory readers, config).
