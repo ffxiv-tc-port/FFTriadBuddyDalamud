@@ -83,6 +83,17 @@ namespace TriadBuddyPlugin
 
         private IntPtr addonPtr;
 
+        // Each frame is read into scratchState; it becomes currentState only when it differs, and is then replaced,
+        // so a state handed to OnUIStateChanged is never written again. Native pointers in the lists are this frame's only.
+        private UIStateTriadGame? scratchState;
+        private readonly List<ulong> nodesL0 = new();
+        private readonly List<ulong> nodesNameL1 = new();
+        private readonly List<ulong> nodesNameL2 = new();
+        private readonly List<ulong> nodesRule = new();
+        private readonly NativeStringSlots redPlayerTexts = new(isAnsi: false);
+        private readonly NativeStringSlots ruleTexts = new(isAnsi: false);
+        private readonly NativeStringSlots cardTexturePaths = new(isAnsi: true);
+
         public string GetAddonName()
         {
             return "TripleTriad";
@@ -128,12 +139,15 @@ namespace TriadBuddyPlugin
             }
 
             status = Status.NoErrors;
-            var newState = new UIStateTriadGame();
+            var newState = scratchState ??= CreateScratchState();
+            newState.move = 0;
+            newState.isPvP = false;
+            newState.localIsBlue = true;
 
-            var nodeArrL0 = GUINodeUtils.GetImmediateChildNodes(addon->AtkUnitBase.RootNode);
-            newState.redPlayerDesc = GetUIDescriptionRedPlayer(nodeArrL0);
-            newState.rules = GetUIDescriptionRules(nodeArrL0);
-            newState.isPvP = GetUIStatePvP(nodeArrL0);
+            GUINodeUtils.CollectImmediateChildNodes(addon->AtkUnitBase.RootNode, nodesL0);
+            ReadUIDescriptionRedPlayer(nodesL0, newState.redPlayerDesc);
+            ReadUIDescriptionRules(nodesL0, newState.rules);
+            newState.isPvP = GetUIStatePvP(nodesL0);
 
             if (status == Status.NoErrors)
             {
@@ -146,27 +160,27 @@ namespace TriadBuddyPlugin
 
             if (status == Status.NoErrors)
             {
-                newState.blueDeck[0] = GetCardData(addon->BlueDeck0);
-                newState.blueDeck[1] = GetCardData(addon->BlueDeck1);
-                newState.blueDeck[2] = GetCardData(addon->BlueDeck2);
-                newState.blueDeck[3] = GetCardData(addon->BlueDeck3);
-                newState.blueDeck[4] = GetCardData(addon->BlueDeck4);
+                ReadCardData(addon->BlueDeck0, newState.blueDeck[0], 0);
+                ReadCardData(addon->BlueDeck1, newState.blueDeck[1], 1);
+                ReadCardData(addon->BlueDeck2, newState.blueDeck[2], 2);
+                ReadCardData(addon->BlueDeck3, newState.blueDeck[3], 3);
+                ReadCardData(addon->BlueDeck4, newState.blueDeck[4], 4);
 
-                newState.redDeck[0] = GetCardData(addon->RedDeck0);
-                newState.redDeck[1] = GetCardData(addon->RedDeck1);
-                newState.redDeck[2] = GetCardData(addon->RedDeck2);
-                newState.redDeck[3] = GetCardData(addon->RedDeck3);
-                newState.redDeck[4] = GetCardData(addon->RedDeck4);
+                ReadCardData(addon->RedDeck0, newState.redDeck[0], 5);
+                ReadCardData(addon->RedDeck1, newState.redDeck[1], 6);
+                ReadCardData(addon->RedDeck2, newState.redDeck[2], 7);
+                ReadCardData(addon->RedDeck3, newState.redDeck[3], 8);
+                ReadCardData(addon->RedDeck4, newState.redDeck[4], 9);
 
-                newState.board[0] = GetCardData(addon->Board0);
-                newState.board[1] = GetCardData(addon->Board1);
-                newState.board[2] = GetCardData(addon->Board2);
-                newState.board[3] = GetCardData(addon->Board3);
-                newState.board[4] = GetCardData(addon->Board4);
-                newState.board[5] = GetCardData(addon->Board5);
-                newState.board[6] = GetCardData(addon->Board6);
-                newState.board[7] = GetCardData(addon->Board7);
-                newState.board[8] = GetCardData(addon->Board8);
+                ReadCardData(addon->Board0, newState.board[0], 10);
+                ReadCardData(addon->Board1, newState.board[1], 11);
+                ReadCardData(addon->Board2, newState.board[2], 12);
+                ReadCardData(addon->Board3, newState.board[3], 13);
+                ReadCardData(addon->Board4, newState.board[4], 14);
+                ReadCardData(addon->Board5, newState.board[5], 15);
+                ReadCardData(addon->Board6, newState.board[6], 16);
+                ReadCardData(addon->Board7, newState.board[7], 17);
+                ReadCardData(addon->Board8, newState.board[8], 18);
             }
 
             if (status == Status.NoErrors && newState.move > 0 && !manualSideOverrideActive && sideDetectionReliable)
@@ -194,6 +208,10 @@ namespace TriadBuddyPlugin
             }
 
             SetCurrentState(status == Status.NoErrors ? newState : null);
+            if (ReferenceEquals(currentState, newState))
+            {
+                scratchState = null;
+            }
 
             // pvp status is part of UI state, allow setting detection, just make sure that solver will be disabled
             // if this flag is not set in pvp match, red player description will not match known npc and solver will be in failed state anyway
@@ -238,30 +256,37 @@ namespace TriadBuddyPlugin
             }
         }
 
-        private unsafe List<string> GetUIDescriptionRedPlayer(AtkResNode*[]? level0)
+        private static UIStateTriadGame CreateScratchState()
         {
-            var listRedDesc = new List<string>();
+            var state = new UIStateTriadGame();
+            for (int idx = 0; idx < state.blueDeck.Length; idx++) { state.blueDeck[idx] = new UIStateTriadCard(); }
+            for (int idx = 0; idx < state.redDeck.Length; idx++) { state.redDeck[idx] = new UIStateTriadCard(); }
+            for (int idx = 0; idx < state.board.Length; idx++) { state.board[idx] = new UIStateTriadCard(); }
+            return state;
+        }
+
+        private unsafe void ReadUIDescriptionRedPlayer(List<ulong> level0, List<string> listRedDesc)
+        {
+            listRedDesc.Clear();
 
             var nodeName0 = GUINodeUtils.PickNode(level0, 6, 12);
-            var nodeArrNameL1 = GUINodeUtils.GetImmediateChildNodes(nodeName0);
-            var nodeNameL1 = GUINodeUtils.PickNode(nodeArrNameL1, 0, 5);
-            var nodeArrNameL2 = GUINodeUtils.GetAllChildNodes(nodeNameL1);
+            GUINodeUtils.CollectImmediateChildNodes(nodeName0, nodesNameL1);
+            var nodeNameL1 = GUINodeUtils.PickNode(nodesNameL1, 0, 5);
+            GUINodeUtils.CollectAllChildNodes(nodeNameL1, nodesNameL2);
             // there are multiple text boxes, for holding different combinations of name & titles?
             // idk, too lazy to investigate, grab everything inside
             int numParsed = 0;
-            if (nodeArrNameL2 != null)
+            foreach (var testNodeAddr in nodesNameL2)
             {
-                foreach (var testNode in nodeArrNameL2)
+                var testNode = (AtkResNode*)testNodeAddr;
+                var isVisible = (testNode != null) ? (testNode->NodeFlags & NodeFlags.Visible) == NodeFlags.Visible : false;
+                if (isVisible)
                 {
-                    var isVisible = (testNode != null) ? (testNode->NodeFlags & NodeFlags.Visible) == NodeFlags.Visible : false;
-                    if (isVisible)
+                    numParsed++;
+                    var text = redPlayerTexts.Read(numParsed - 1, GUINodeUtils.GetNodeTextPtr(testNode));
+                    if (!string.IsNullOrEmpty(text))
                     {
-                        numParsed++;
-                        var text = GUINodeUtils.GetNodeText(testNode);
-                        if (!string.IsNullOrEmpty(text))
-                        {
-                            listRedDesc.Add(text);
-                        }
+                        listRedDesc.Add(text);
                     }
                 }
             }
@@ -270,21 +295,19 @@ namespace TriadBuddyPlugin
             {
                 SetStatus(Status.FailedToReadRedPlayer);
             }
-
-            return listRedDesc;
         }
 
-        private unsafe List<string> GetUIDescriptionRules(AtkResNode*[]? level0)
+        private unsafe void ReadUIDescriptionRules(List<ulong> level0, List<string> listRuleDesc)
         {
-            var listRuleDesc = new List<string>();
+            listRuleDesc.Clear();
 
             var nodeRule0 = GUINodeUtils.PickNode(level0, 4, 12);
-            var nodeArrRule = GUINodeUtils.GetImmediateChildNodes(nodeRule0);
-            if (nodeArrRule != null && nodeArrRule.Length == 5)
+            GUINodeUtils.CollectImmediateChildNodes(nodeRule0, nodesRule);
+            if (nodesRule.Count == 5)
             {
                 for (int idx = 0; idx < 4; idx++)
                 {
-                    var text = GUINodeUtils.GetNodeText(nodeArrRule[4 - idx]);
+                    var text = ruleTexts.Read(idx, GUINodeUtils.GetNodeTextPtr((AtkResNode*)nodesRule[4 - idx]));
                     if (!string.IsNullOrEmpty(text))
                     {
                         listRuleDesc.Add(text);
@@ -295,12 +318,9 @@ namespace TriadBuddyPlugin
             {
                 SetStatus(Status.FailedToReadRules);
             }
-
-
-            return listRuleDesc;
         }
 
-        private unsafe bool GetUIStatePvP(AtkResNode*[]? level0)
+        private unsafe bool GetUIStatePvP(List<ulong> level0)
         {
             // verify, is that for both pvp and tournament games?
             var nodePvPButton = GUINodeUtils.PickNode(level0, 11, 12);
@@ -312,7 +332,7 @@ namespace TriadBuddyPlugin
             return false;
         }
 
-        private unsafe (string, bool) GetCardTextureData(AddonTripleTriadCard addonCard)
+        private unsafe (string, bool) GetCardTextureData(AddonTripleTriadCard addonCard, int slot)
         {
             // DragDrop Component
             // [1] Icon Component
@@ -321,7 +341,7 @@ namespace TriadBuddyPlugin
             var nodeA = GUINodeUtils.PickChildNode(addonCard.CardDropControl, 1, 3);
             var nodeB = GUINodeUtils.PickChildNode(nodeA, 0, 2);
             var nodeC = GUINodeUtils.PickChildNode(nodeB, 3, 21);
-            var texPath = GUINodeUtils.GetNodeTexturePath(nodeC);
+            var texPath = cardTexturePaths.Read(slot, GUINodeUtils.GetNodeTexturePathPtr(nodeC));
 
             if (nodeC == null)
             {
@@ -332,9 +352,20 @@ namespace TriadBuddyPlugin
             return (texPath ?? "", isLocked);
         }
 
-        private unsafe UIStateTriadCard GetCardData(AddonTripleTriadCard addonCard)
+        // Leaves resultOb exactly as a new UIStateTriadCard filled from addonCard; slot keys the texture path cache.
+        private unsafe void ReadCardData(AddonTripleTriadCard addonCard, UIStateTriadCard resultOb, int slot)
         {
-            var resultOb = new UIStateTriadCard();
+            resultOb.numU = 0;
+            resultOb.numL = 0;
+            resultOb.numD = 0;
+            resultOb.numR = 0;
+            resultOb.rarity = 0;
+            resultOb.type = 0;
+            resultOb.owner = 0;
+            resultOb.isPresent = false;
+            resultOb.isLocked = false;
+            resultOb.texturePath = null;
+
             if (addonCard.HasCard)
             {
                 resultOb.isPresent = true;
@@ -350,11 +381,9 @@ namespace TriadBuddyPlugin
                     resultOb.rarity = addonCard.CardRarity;
                     resultOb.type = addonCard.CardType;
 
-                    (resultOb.texturePath, resultOb.isLocked) = GetCardTextureData(addonCard);
+                    (resultOb.texturePath, resultOb.isLocked) = GetCardTextureData(addonCard, slot);
                 }
             }
-
-            return resultOb;
         }
 
         private unsafe (Vector2, Vector2) GetCardPosAndSize(AddonTripleTriadCard addonCard)

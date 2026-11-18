@@ -78,12 +78,12 @@ namespace TriadBuddyPlugin
             }
 
             // not real list comparison, but will be enough here
-            if (rules.Count != other.rules.Count || !rules.TrueForAll(x => other.rules.Contains(x)))
+            if (rules.Count != other.rules.Count || !ContainsAll(other.rules, rules))
             {
                 return false;
             }
 
-            if (redPlayerDesc.Count != other.redPlayerDesc.Count || !redPlayerDesc.TrueForAll(x => other.redPlayerDesc.Contains(x)))
+            if (redPlayerDesc.Count != other.redPlayerDesc.Count || !ContainsAll(other.redPlayerDesc, redPlayerDesc))
             {
                 return false;
             }
@@ -109,6 +109,20 @@ namespace TriadBuddyPlugin
             for (int idx = 0; idx < blueDeck.Length; idx++)
             {
                 if (HasCardDiffs(blueDeck[idx], other.blueDeck[idx]) || HasCardDiffs(redDeck[idx], other.redDeck[idx]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Same answer as items.TrueForAll(x => container.Contains(x)), without a closure per call.
+        private static bool ContainsAll(List<string> container, List<string> items)
+        {
+            foreach (var item in items)
+            {
+                if (!container.Contains(item))
                 {
                     return false;
                 }

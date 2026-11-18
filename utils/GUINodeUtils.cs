@@ -53,6 +53,33 @@ namespace MgAl2O4.Utils
             return ConvertToNodeArr(listAddr);
         }
 
+        // Same nodes and order as GetImmediateChildNodes, written into a caller-owned list instead of a new array.
+        public static unsafe void CollectImmediateChildNodes(AtkResNode* node, List<ulong> output)
+        {
+            output.Clear();
+            if (node != null && node->ChildNode != null)
+            {
+                output.Add((ulong)node->ChildNode);
+
+                node = node->ChildNode;
+                while (node->PrevSiblingNode != null)
+                {
+                    output.Add((ulong)node->PrevSiblingNode);
+                    node = node->PrevSiblingNode;
+                }
+            }
+        }
+
+        // Same nodes and order as GetAllChildNodes, written into a caller-owned list instead of a new array.
+        public static unsafe void CollectAllChildNodes(AtkResNode* node, List<ulong> output)
+        {
+            output.Clear();
+            if (node != null)
+            {
+                RecursiveAppendChildNodes(node, output);
+            }
+        }
+
         public static unsafe AtkResNode*[]? GetAllChildNodes(AtkResNode* node)
         {
             if (node != null)
@@ -115,12 +142,29 @@ namespace MgAl2O4.Utils
             return null;
         }
 
+        public static unsafe AtkResNode* PickNode(List<ulong> nodes, int nodeIdx, int expectedNumNodes)
+        {
+            if (nodes.Count == expectedNumNodes && nodeIdx < expectedNumNodes)
+            {
+                return (AtkResNode*)nodes[nodeIdx];
+            }
+
+            return null;
+        }
+
         public static unsafe AtkResNode* GetChildNode(AtkResNode* node)
         {
             return node != null ? node->ChildNode : null;
         }
 
         public static unsafe string? GetNodeTexturePath(AtkResNode* maybeImageNode)
+        {
+            var texPathPtr = GetNodeTexturePathPtr(maybeImageNode);
+            return (texPathPtr == null) ? null : Marshal.PtrToStringAnsi((IntPtr)texPathPtr);
+        }
+
+        // NUL-terminated ANSI path inside the game's texture resource, or null; only valid until the game touches the node again.
+        public static unsafe byte* GetNodeTexturePathPtr(AtkResNode* maybeImageNode)
         {
             if (maybeImageNode != null && maybeImageNode->Type == NodeType.Image)
             {
@@ -132,11 +176,9 @@ namespace MgAl2O4.Utils
                     if (texType == TextureType.Resource)
                     {
                         var texFileNameStdString = &textureInfo->AtkTexture.Resource->TexFileResourceHandle->ResourceHandle.FileName;
-                        var texString = texFileNameStdString->Length < 16
-                            ? Marshal.PtrToStringAnsi((IntPtr)texFileNameStdString->Buffer)
-                            : Marshal.PtrToStringAnsi((IntPtr)texFileNameStdString->BufferPtr);
-
-                        return texString;
+                        return texFileNameStdString->Length < 16
+                            ? texFileNameStdString->Buffer
+                            : texFileNameStdString->BufferPtr;
                     }
                 }
             }
@@ -146,11 +188,17 @@ namespace MgAl2O4.Utils
 
         public static unsafe string? GetNodeText(AtkResNode* maybeTextNode)
         {
+            var textPtr = GetNodeTextPtr(maybeTextNode);
+            return (textPtr == null) ? null : Marshal.PtrToStringUTF8((IntPtr)textPtr);
+        }
+
+        // NUL-terminated UTF-8 text of a text node, or null; only valid until the game touches the node again.
+        public static unsafe byte* GetNodeTextPtr(AtkResNode* maybeTextNode)
+        {
             if (maybeTextNode != null && maybeTextNode->Type == NodeType.Text)
             {
                 var textNode = (AtkTextNode*)maybeTextNode;
-                var text = Marshal.PtrToStringUTF8(new IntPtr(textNode->NodeText.StringPtr));
-                return text;
+                return textNode->NodeText.StringPtr;
             }
 
             return null;
