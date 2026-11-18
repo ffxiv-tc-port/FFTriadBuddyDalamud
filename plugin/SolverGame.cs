@@ -3,6 +3,7 @@ using MgAl2O4.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TriadBuddyPlugin
@@ -97,7 +98,7 @@ namespace TriadBuddyPlugin
 
         // Returns list of valid combinations: each combination is a list of cards (one full 5-card deck).
         // Filters out combinations inconsistent with red cards already placed on board.
-        private List<List<TriadCard>> GetValidCombinations(List<TriadCard> placedRedCards)
+        private static List<List<TriadCard>> GetValidCombinations(List<List<TriadCard>>[]? tournamentGroups, List<TriadCard> placedRedCards)
         {
             if (tournamentGroups == null || tournamentGroups.Length == 0)
                 return new List<List<TriadCard>>();
@@ -186,7 +187,7 @@ namespace TriadBuddyPlugin
                     }
 
                     // Build all 27 opponent combos
-                    var oppCombos = GetValidCombinations(new List<TriadCard>());
+                    var oppCombos = GetValidCombinations(groups, new List<TriadCard>());
 
                     const int gamesPerPair = 50;
                     var rng = new Random(42);
@@ -318,12 +319,74 @@ namespace TriadBuddyPlugin
         // can't just reuse OnLocalPlayerSideDetected, which fires on every update).
         public event Action? OnNewMatchStarted;
 
-        // async void：漏出去的例外沒有人接，會直接結束整個遊戲，所以整段在這裡接住。
-        public async void UpdateGame(UIStateTriadGame stateOb)
+        /// <summary>
+        /// The in-match solve runs on the thread pool; OnFrameworkUpdate applies its result on the framework thread.
+        /// Contract: everything except WorkerLoop / RunSolve and what they call runs on the framework thread only.
+        /// The worker touches only its SolveRequest (an independent copy), backgroundSolver and Service.logger.
+        /// At most one solve runs at a time and only the newest waiting request is kept (latest wins). A changed
+        /// solveGeneration makes a result stale: it is never applied, and the worker stops between FindNextMove calls.
+        /// </summary>
+        private readonly TriadGameSolver backgroundSolver = new();
+        private readonly object solveLock = new();
+        private readonly Action workerLoop;
+        private SolveRequest? pendingRequest;   // under solveLock
+        private SolveRequest? finishedRequest;  // under solveLock
+        private bool workerRunning;             // under solveLock
+        private int solveGeneration;
+        private volatile bool disposed;
+        private bool solveInFlight;
+
+        // True from handing a board to the worker until OnFrameworkUpdate sees the worker idle.
+        public bool IsSolving => solveInFlight;
+
+        public SolverGame()
+        {
+            workerLoop = WorkerLoop;
+#if DEBUG
+            // turn on verbose debugging when checking solver's behavior
+            backgroundSolver.agent.debugFlags = TriadGameAgent.DebugFlags.ShowMoveStart | TriadGameAgent.DebugFlags.ShowMoveDetails;
+#endif // DEBUG
+        }
+
+        // Solver input and output. Filled on the framework thread, then owned by the worker until it is handed back.
+        private sealed class SolveRequest
+        {
+            public readonly int generation;
+            public readonly TriadGameSimulationState state;
+            public readonly List<TriadGameModifier> modifiers;
+            public readonly ETriadGameSpecialMod specialRules;
+            public readonly TriadGameModifier.EFeature modFeatures;
+            public readonly List<List<TriadCard>>[]? tournamentGroups;
+            public readonly bool findRedAdvMove;
+
+            public bool failed;
+            public bool aborted;
+            public int moveCardIdx = -1;
+            public int moveBoardIdx = -1;
+            public SolverResult moveResult;
+            public int redCardIdx = -1;
+            public int redBoardIdx = -1;
+            public SolverResult redResult;
+
+            public SolveRequest(int generation, TriadGameSimulationState state, TriadGameSimulation simulation,
+                List<List<TriadCard>>[]? tournamentGroups, bool findRedAdvMove)
+            {
+                this.generation = generation;
+                this.state = state;
+                modifiers = new List<TriadGameModifier>(simulation.modifiers);
+                specialRules = simulation.specialRules;
+                modFeatures = simulation.modFeatures;
+                this.tournamentGroups = tournamentGroups;
+                this.findRedAdvMove = findRedAdvMove;
+            }
+        }
+
+        // 不是 async：求解交給背景，這裡同步做完。例外在這裡接住，免得框架更新跳過本插件其餘的處理。
+        public void UpdateGame(UIStateTriadGame stateOb)
         {
             try
             {
-                await UpdateGameInner(stateOb);
+                UpdateGameInner(stateOb);
             }
             catch (Exception ex)
             {
@@ -332,8 +395,8 @@ namespace TriadBuddyPlugin
             }
         }
 
-        // 契約：不可擲例外（呼叫端是 async void 的 catch）。
-        // 清掉過期的出牌提示並放開牌組最佳化的暫停；下一次盤面更新照常重新求解。
+        // 契約：不可擲例外（呼叫端在 catch 裡）。
+        // 清掉過期的出牌提示、作廢求解中的盤面；下一次盤面更新照常重新求解。牌組最佳化的暫停由 OnFrameworkUpdate 放開。
         private void ResetAfterFailedUpdate()
         {
             hasMove = false;
@@ -341,7 +404,7 @@ namespace TriadBuddyPlugin
             solveFailed = true;
             try
             {
-                SolverUtils.solverDeckOptimize?.SetPauseForGameSolver(false);
+                InvalidatePendingSolve();
                 OnMoveChanged?.Invoke(false);
             }
             catch (Exception ex)
@@ -350,7 +413,66 @@ namespace TriadBuddyPlugin
             }
         }
 
-        private async Task UpdateGameInner(UIStateTriadGame stateOb)
+        // 遊戲的對局視窗關掉時呼叫：求解中的結果不再套用（提示本身照舊留著，和之前一樣）。
+        public void DiscardPendingSolve() => InvalidatePendingSolve();
+
+        public void Dispose()
+        {
+            disposed = true;
+            InvalidatePendingSolve();
+            lock (solveLock)
+            {
+                finishedRequest = null;
+            }
+        }
+
+        private void InvalidatePendingSolve()
+        {
+            Volatile.Write(ref solveGeneration, solveGeneration + 1);
+            lock (solveLock)
+            {
+                pendingRequest = null;
+            }
+        }
+
+        // 每幀由插件的 Framework.Update 呼叫；沒有求解在跑時直接返回。
+        public void OnFrameworkUpdate()
+        {
+            if (!solveInFlight || disposed)
+            {
+                return;
+            }
+
+            SolveRequest? done;
+            bool idle;
+            lock (solveLock)
+            {
+                done = finishedRequest;
+                finishedRequest = null;
+                idle = !workerRunning && pendingRequest == null;
+            }
+
+            if (done != null && !done.aborted && done.generation == solveGeneration)
+            {
+                try
+                {
+                    ApplySolve(done);
+                }
+                catch (Exception ex)
+                {
+                    Service.logger.Error(ex, "[SolverGame] applying solver result failed, move hint cleared until the next board update");
+                    ResetAfterFailedUpdate();
+                }
+            }
+
+            if (idle)
+            {
+                solveInFlight = false;
+                SolverUtils.solverDeckOptimize?.SetPauseForGameSolver(false);
+            }
+        }
+
+        private void UpdateGameInner(UIStateTriadGame stateOb)
         {
             status = Status.NoErrors;
 
@@ -417,112 +539,176 @@ namespace TriadBuddyPlugin
                 if (updateFlags != TriadGameScreenMemory.EUpdateFlags.None)
                 {
                     solveFailed = false;
-                    if (screenMemory.deckBlue != null && screenMemory.gameState != null && screenMemory.gameSolver != null)
-                    {
-#if DEBUG
-                        // turn on verbose debugging when checking solver's behavior
-                        screenMemory.gameSolver.agent.debugFlags = TriadGameAgent.DebugFlags.ShowMoveStart | TriadGameAgent.DebugFlags.ShowMoveDetails;
-#endif // DEBUG
+                    InvalidatePendingSolve();
 
-                        SolverUtils.solverDeckOptimize?.SetPauseForGameSolver(true);
-
-                        bool useTournamentMultiScenario = isPvP && tournamentGroups != null && tournamentGroups.Length > 0;
-                        var nextMoveInfo = useTournamentMultiScenario
-                            ? await UpdateGameRunSolverMultiScenario()
-                            : await UpdateGameRunSolver();
-
-                        hasMove = true;
-                        moveCardIdx = nextMoveInfo.Item1;
-                        moveBoardIdx = (moveCardIdx < 0) ? -1 : nextMoveInfo.Item2;
-                        moveWinChance = nextMoveInfo.Item3;
-
-                        var solverCardOb = screenMemory.deckBlue.GetCard(moveCardIdx);
-                        if ((screenMemory.gameState.forcedCardIdx >= 0) && (moveCardIdx != screenMemory.gameState.forcedCardIdx))
-                        {
-                            // swap + chaos may cause selecting wrong instance of duplicated card?
-                            // it really, really shouldn't unless solver's agent is broken
-
-                            var forcedCardOb = screenMemory.deckBlue.GetCard(screenMemory.gameState.forcedCardIdx);
-
-                            var solverCardDesc = solverCardOb != null ? solverCardOb.Name.GetCodeName() : "??";
-                            var forcedCardDesc = forcedCardOb != null ? forcedCardOb.Name.GetCodeName() : "??";
-                            Service.logger.Warning($"Solver selected card [{moveCardIdx}]:{solverCardDesc}, but game wants: [{screenMemory.gameState.forcedCardIdx}]:{forcedCardDesc} !");
-
-                            moveCardIdx = screenMemory.gameState.forcedCardIdx;
-                            solverCardOb = forcedCardOb;
-                        }
-
-                        Logger.WriteLine("  suggested move: [{0}] {1} {2} (expected: {3})",
-                            moveBoardIdx, ETriadCardOwner.Blue,
-                            solverCardOb != null ? solverCardOb.Name.GetCodeName() : "??",
-                            moveWinChance.expectedResult);
-
-                        SolverUtils.solverDeckOptimize?.SetPauseForGameSolver(false);
-                    }
-                    else
+                    bool canSolve = screenMemory.deckBlue != null && screenMemory.gameState != null && screenMemory.gameSolver != null;
+                    // 舊盤面的提示在新結果出來前不留著（可能指向已經放了牌的格子）。
+                    if (hasMove || !canSolve)
                     {
                         hasMove = false;
+                        OnMoveChanged?.Invoke(hasMove);
                     }
+                    hasRedAdvMove = false;
 
-                    OnMoveChanged?.Invoke(hasMove);
-
-                    // when in PvP with known opponent deck, also find opponent's worst move (best for blue)
-                    if (isPvP && screenMemory.deckRed != null && screenMemory.gameState != null && screenMemory.gameSolver != null)
+                    if (canSolve)
                     {
-                        bool hasKnownRedCards = GetPvPNpc().Deck.knownCards.Count > 0;
-                        if (hasKnownRedCards)
+                        bool useTournamentMultiScenario = isPvP && tournamentGroups != null && tournamentGroups.Length > 0;
+                        // when in PvP with known opponent deck, also find opponent's worst move (best for blue)
+                        bool findRedAdvMove = isPvP && screenMemory.deckRed != null && GetPvPNpc().Deck.knownCards.Count > 0;
+                        var gameState = screenMemory.gameState!;
+                        // 複製建構子不帶 forcedCardIdx／bDebugRules，這裡補上，背景拿到的盤面才和原物件等值。
+                        var stateCopy = new TriadGameSimulationState(gameState)
                         {
-                            var redAdvInfo = await FindWorstRedMoveForBlue();
-                            hasRedAdvMove = redAdvInfo.Item1 >= 0;
-                            redAdvMoveCardIdx = redAdvInfo.Item1;
-                            redAdvMoveBoardIdx = redAdvInfo.Item2;
-                            redAdvMoveWinChance = redAdvInfo.Item3;
-                        }
-                        else
-                        {
-                            hasRedAdvMove = false;
-                        }
-                    }
-                    else
-                    {
-                        hasRedAdvMove = false;
+                            forcedCardIdx = gameState.forcedCardIdx,
+                            bDebugRules = gameState.bDebugRules,
+                        };
+                        SubmitSolve(new SolveRequest(solveGeneration, stateCopy, screenMemory.gameSolver!.simulation,
+                            useTournamentMultiScenario ? tournamentGroups : null, findRedAdvMove));
                     }
                 }
-            }
-            else if (hasMove)
-            {
-                hasMove = false;
-                hasRedAdvMove = false;
-                OnMoveChanged?.Invoke(hasMove);
             }
             else
             {
-                solveFailed = false;
-            }
-        }
-
-        private Task<Tuple<int, int, SolverResult>> UpdateGameRunSolver()
-        {
-            screenMemory.gameSolver.FindNextMove(screenMemory.gameState, out int bestCardIdx, out int bestBoardPos, out var solverResult);
-            return Task.FromResult(new Tuple<int, int, SolverResult>(bestCardIdx, bestBoardPos, solverResult));
-        }
-
-        private Task<Tuple<int, int, SolverResult>> UpdateGameRunSolverMultiScenario()
-        {
-            // Collect red cards already on board to narrow valid combinations.
-            var placedRed = new List<TriadCard>();
-            if (screenMemory.gameState?.board != null)
-            {
-                foreach (var piece in screenMemory.gameState.board)
+                InvalidatePendingSolve();
+                if (hasMove)
                 {
-                    if (piece?.owner == ETriadCardOwner.Red && piece.card != null)
-                        placedRed.Add(piece.card);
+                    hasMove = false;
+                    hasRedAdvMove = false;
+                    OnMoveChanged?.Invoke(hasMove);
+                }
+                else
+                {
+                    solveFailed = false;
                 }
             }
+        }
 
-            var combinations = GetValidCombinations(placedRed);
+        private void SubmitSolve(SolveRequest req)
+        {
+            solveInFlight = true;
+            SolverUtils.solverDeckOptimize?.SetPauseForGameSolver(true);
+
+            bool startWorker;
+            lock (solveLock)
+            {
+                pendingRequest = req;
+                startWorker = !workerRunning;
+                workerRunning = true;
+            }
+
+            if (startWorker)
+            {
+                try
+                {
+                    _ = Task.Run(workerLoop);
+                }
+                catch
+                {
+                    lock (solveLock)
+                    {
+                        workerRunning = false;
+                        pendingRequest = null;
+                    }
+                    throw;
+                }
+            }
+        }
+
+        // Thread pool. Never throws: RunSolve catches solver failures, and anything else just ends this worker.
+        private void WorkerLoop()
+        {
+            try
+            {
+                while (true)
+                {
+                    SolveRequest? req;
+                    lock (solveLock)
+                    {
+                        req = pendingRequest;
+                        pendingRequest = null;
+                        if (req == null || disposed)
+                        {
+                            workerRunning = false;
+                            return;
+                        }
+                    }
+
+                    RunSolve(req);
+
+                    lock (solveLock)
+                    {
+                        finishedRequest = req;
+                    }
+                }
+            }
+            catch
+            {
+                lock (solveLock)
+                {
+                    workerRunning = false;
+                }
+            }
+        }
+
+        private bool IsStale(SolveRequest req) => disposed || Volatile.Read(ref solveGeneration) != req.generation;
+
+        // Thread pool. Same FindNextMove calls, in the same order, as the old synchronous solve on the framework thread.
+        private void RunSolve(SolveRequest req)
+        {
+            try
+            {
+                var simulation = backgroundSolver.simulation;
+                simulation.modifiers.Clear();
+                simulation.modifiers.AddRange(req.modifiers);
+                simulation.specialRules = req.specialRules;
+                simulation.modFeatures = req.modFeatures;
+
+                bool finished = (req.tournamentGroups != null) ? SolveMultiScenario(req) : SolveSingleScenario(req);
+                if (finished && req.findRedAdvMove)
+                {
+                    finished = FindWorstRedMoveForBlue(req);
+                }
+
+                req.aborted = !finished;
+            }
+            catch (Exception ex)
+            {
+                req.failed = true;
+                try
+                {
+                    if (!disposed)
+                    {
+                        Service.logger.Error(ex, "[SolverGame] solve failed, move hint cleared until the next board update");
+                    }
+                }
+                catch
+                {
+                    // 記錄本身失敗也不能讓工作執行緒停擺；結果照樣交回（failed）。
+                }
+            }
+        }
+
+        private bool SolveSingleScenario(SolveRequest req)
+        {
+            backgroundSolver.FindNextMove(req.state, out req.moveCardIdx, out req.moveBoardIdx, out req.moveResult);
+            return true;
+        }
+
+        private bool SolveMultiScenario(SolveRequest req)
+        {
+            var gameState = req.state;
+
+            // Collect red cards already on board to narrow valid combinations.
+            var placedRed = new List<TriadCard>();
+            foreach (var piece in gameState.board)
+            {
+                if (piece?.owner == ETriadCardOwner.Red && piece.card != null)
+                    placedRed.Add(piece.card);
+            }
+
+            var combinations = GetValidCombinations(req.tournamentGroups, placedRed);
             if (combinations.Count == 0)
-                return UpdateGameRunSolver();
+                return SolveSingleScenario(req);
 
             // score[cardIdx * 9 + boardPos] = sum of scores across scenarios
             var totalScore = new float[TriadDeckInstance.maxAvailableCards * 9];
@@ -530,6 +716,9 @@ namespace TriadBuddyPlugin
 
             foreach (var combo in combinations)
             {
+                if (IsStale(req))
+                    return false;
+
                 var deck = new TriadDeck();
                 deck.knownCards.AddRange(combo);
 
@@ -541,11 +730,11 @@ namespace TriadBuddyPlugin
                         deckInst.availableCardMask &= ~(1 << i);
                 }
 
-                var stateCopy = new TriadGameSimulationState(screenMemory.gameState);
+                var stateCopy = new TriadGameSimulationState(gameState);
                 stateCopy.deckRed = deckInst;
-                stateCopy.forcedCardIdx = screenMemory.gameState.forcedCardIdx;
+                stateCopy.forcedCardIdx = gameState.forcedCardIdx;
 
-                screenMemory.gameSolver.FindNextMove(stateCopy, out int cardIdx, out int boardPos, out var result);
+                backgroundSolver.FindNextMove(stateCopy, out int cardIdx, out int boardPos, out var result);
                 if (cardIdx >= 0 && boardPos >= 0)
                     totalScore[cardIdx * 9 + boardPos] += result.score;
                 scenarioCount++;
@@ -563,19 +752,26 @@ namespace TriadBuddyPlugin
 
             // Fall back to single-scenario if multi-scenario gave no result.
             if (bestCard < 0)
-                return UpdateGameRunSolver();
+                return SolveSingleScenario(req);
+
+            if (IsStale(req))
+                return false;
 
             // Run single-scenario solver to get a proper SolverResult for display.
-            screenMemory.gameSolver.FindNextMove(screenMemory.gameState, out _, out _, out var displayResult);
-            Service.logger.Info($"[MultiScenario] {scenarioCount} combos, best: card[{bestCard}] board[{bestBoard}] score={bestScore:F2}");
+            backgroundSolver.FindNextMove(gameState, out _, out _, out var displayResult);
+            if (!disposed)
+                Service.logger.Info($"[MultiScenario] {scenarioCount} combos, best: card[{bestCard}] board[{bestBoard}] score={bestScore:F2}");
 
-            return Task.FromResult(new Tuple<int, int, SolverResult>(bestCard, bestBoard, displayResult));
+            req.moveCardIdx = bestCard;
+            req.moveBoardIdx = bestBoard;
+            req.moveResult = displayResult;
+            return true;
         }
 
-        private Task<Tuple<int, int, SolverResult>> FindWorstRedMoveForBlue()
+        private bool FindWorstRedMoveForBlue(SolveRequest req)
         {
-            var solver = screenMemory.gameSolver;
-            var gameState = screenMemory.gameState;
+            var solver = backgroundSolver;
+            var gameState = req.state;
 
             // temporarily switch to red's turn to enumerate red's available actions
             var origState = gameState.state;
@@ -594,6 +790,7 @@ namespace TriadBuddyPlugin
                 for (int boardPos = 0; boardPos < 9; boardPos++)
                 {
                     if ((availBoardMask & (1 << boardPos)) == 0) continue;
+                    if (IsStale(req)) return false;
 
                     // clone state and simulate red placing this card
                     var testState = new TriadGameSimulationState(gameState);
@@ -622,7 +819,65 @@ namespace TriadBuddyPlugin
                 }
             }
 
-            return Task.FromResult(new Tuple<int, int, SolverResult>(bestCardIdx, bestBoardPos, bestResult));
+            req.redCardIdx = bestCardIdx;
+            req.redBoardIdx = bestBoardPos;
+            req.redResult = bestResult;
+            return true;
+        }
+
+        // Framework thread, current generation only. Same field updates and event order as the old synchronous code.
+        private void ApplySolve(SolveRequest req)
+        {
+            if (req.failed)
+            {
+                hasMove = false;
+                hasRedAdvMove = false;
+                solveFailed = true;
+                OnMoveChanged?.Invoke(false);
+                return;
+            }
+
+            hasMove = true;
+            moveCardIdx = req.moveCardIdx;
+            moveBoardIdx = (moveCardIdx < 0) ? -1 : req.moveBoardIdx;
+            moveWinChance = req.moveResult;
+
+            var deckBlue = req.state.deckBlue;
+            int forcedCardIdx = req.state.forcedCardIdx;
+            var solverCardOb = deckBlue.GetCard(moveCardIdx);
+            if ((forcedCardIdx >= 0) && (moveCardIdx != forcedCardIdx))
+            {
+                // swap + chaos may cause selecting wrong instance of duplicated card?
+                // it really, really shouldn't unless solver's agent is broken
+
+                var forcedCardOb = deckBlue.GetCard(forcedCardIdx);
+
+                var solverCardDesc = solverCardOb != null ? solverCardOb.Name.GetCodeName() : "??";
+                var forcedCardDesc = forcedCardOb != null ? forcedCardOb.Name.GetCodeName() : "??";
+                Service.logger.Warning($"Solver selected card [{moveCardIdx}]:{solverCardDesc}, but game wants: [{forcedCardIdx}]:{forcedCardDesc} !");
+
+                moveCardIdx = forcedCardIdx;
+                solverCardOb = forcedCardOb;
+            }
+
+            Logger.WriteLine("  suggested move: [{0}] {1} {2} (expected: {3})",
+                moveBoardIdx, ETriadCardOwner.Blue,
+                solverCardOb != null ? solverCardOb.Name.GetCodeName() : "??",
+                moveWinChance.expectedResult);
+
+            OnMoveChanged?.Invoke(hasMove);
+
+            if (req.findRedAdvMove)
+            {
+                hasRedAdvMove = req.redCardIdx >= 0;
+                redAdvMoveCardIdx = req.redCardIdx;
+                redAdvMoveBoardIdx = req.redBoardIdx;
+                redAdvMoveWinChance = req.redResult;
+            }
+            else
+            {
+                hasRedAdvMove = false;
+            }
         }
 
         public void UpdateKnownPlayerDeck(TriadDeck playerDeck)

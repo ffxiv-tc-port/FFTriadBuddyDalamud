@@ -66,7 +66,11 @@ namespace TriadBuddyPlugin
 
             // prep data scrapers
             uiReaderGame = new UIReaderTriadGame();
-            uiReaderGame.OnUIStateChanged += (state) => { if (state != null) { SolverUtils.solverGame?.UpdateGame(state); } };
+            uiReaderGame.OnUIStateChanged += (state) =>
+            {
+                if (state != null) { SolverUtils.solverGame?.UpdateGame(state); }
+                else if (!uiReaderGame.IsVisible) { SolverUtils.solverGame?.DiscardPendingSolve(); }
+            };
             if (SolverUtils.solverGame != null)
             {
                 SolverUtils.solverGame.OnLocalPlayerSideDetected += (isRed) => uiReaderGame.forcedLocalIsRed = isRed;
@@ -165,6 +169,7 @@ namespace TriadBuddyPlugin
         {
             Service.commandManager.RemoveHandler("/triadbuddy");
             Service.framework.Update -= Framework_Update;
+            SolverUtils.solverGame?.Dispose();
             windowSystem.RemoveAllWindows();
         }
 
@@ -205,6 +210,8 @@ namespace TriadBuddyPlugin
                             Service.logger.Info($"[TournamentDeck] Restored from config: rules=[{string.Join(", ", cfg.TournamentRuleNames)}]");
                         }
                     }
+
+                    SolverUtils.solverGame?.OnFrameworkUpdate();
 
                     float deltaSeconds = (float)framework.UpdateDelta.TotalSeconds;
                     uiReaderScheduler.Update(deltaSeconds);
